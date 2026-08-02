@@ -23,8 +23,13 @@ public partial class MainForm : Form
     private string? _currentPreviewTableName;
     private int _currentPreviewPage = 1;
     private List<string> _currentPreviewColumns = [];
+    private List<string> _allTables = [];
     private string _previewCopyText = string.Empty;
     private bool _isLoading;
+    private CancellationTokenSource? _rowCountCts;
+    private int _queryTabCounter;
+    private int _hoveredCloseIndex = -1;
+    private int _contextMenuQueryTabIndex = -1;
 
     public MainForm()
     {
@@ -32,7 +37,14 @@ public partial class MainForm : Form
         InitializeServices();
         ApplyTheme();
         tabMain.DrawItem += tabMain_DrawItem;
-        Shown += (_, _) => ApplyDefaultSplitterDistance();
+        Shown += (_, _) =>
+        {
+            ApplyDefaultSplitterDistance();
+            if (queryTabs.TabPages.Count == 0)
+            {
+                AddQueryTab();
+            }
+        };
     }
 
     private void InitializeServices()
@@ -195,11 +207,9 @@ public partial class MainForm : Form
                 var tables = _currentProvider.GetTables(_currentConfig, GetPassword(_currentConfig));
                 Invoke(() =>
                 {
-                    treeTables.Nodes.Clear();
-                    foreach (var table in tables)
-                    {
-                        treeTables.Nodes.Add(table);
-                    }
+                    _allTables = tables.ToList();
+                    txtTableSearch.Clear();
+                    ApplyTableFilter();
                     SetLoading(false);
                 });
             }
@@ -241,13 +251,24 @@ public partial class MainForm : Form
                     gridColumns.DataSource = columns;
                     _currentPreviewColumns = columns.Select(column => column.Name).Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
                     BindPreviewFields();
-                    txtSql.Text = _currentProvider.BuildPreviewSql(tableName, 100);
+
+                    var activePage = GetActiveQueryPage();
+                    if (activePage is not null)
+                    {
+                        activePage.TxtSql.CompletionProvider = BuildCompletionItems;
+                        if (string.IsNullOrWhiteSpace(activePage.TxtSql.Text))
+                        {
+                            activePage.TxtSql.Text = _currentProvider.BuildPreviewSql(tableName, 100);
+                        }
+                    }
+
                     _currentPreviewTableName = tableName;
                     _currentPreviewPage = 1;
                     txtPreviewKeyword.Clear();
                     cboPreviewMatch.SelectedIndex = 0;
                     LoadPreviewPage();
                     SetLoading(false);
+                    UpdateRowCountAsync(tableName);
                 });
             }
             catch (Exception ex)
@@ -368,7 +389,7 @@ public partial class MainForm : Form
         );
     }
 
-    private void RunSql()
+    private void RunSqlFor(DbLiteDesktop.Controls.QueryTabPage page, bool preferSelection = false)
     {
         if (_currentConfig is null || _currentProvider is null)
         {
@@ -376,7 +397,15 @@ public partial class MainForm : Form
             return;
         }
 
-        var sql = txtSql.Text.Trim();
+        var sql = preferSelection
+            ? page.GetEffectiveSql()
+            : page.TxtSql.Text.Trim();
+
+        if (string.IsNullOrWhiteSpace(sql))
+        {
+            return;
+        }
+
         if (!SqlGuardService.IsReadonlySql(sql))
         {
             MessageBox.Show("当前工具只允许执行只读 SQL。", "提示");
@@ -398,19 +427,19 @@ public partial class MainForm : Form
 
                 Invoke(() =>
                 {
-                    gridResults.SuspendLayout();
+                    page.GridResults.SuspendLayout();
                     try
                     {
-                        gridResults.DataSource = null;
-                        gridResults.DataSource = result;
-                        gridResults.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells);
+                        page.GridResults.DataSource = null;
+                        page.GridResults.DataSource = result;
+                        page.GridResults.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells);
                     }
                     finally
                     {
-                        gridResults.ResumeLayout();
+                        page.GridResults.ResumeLayout();
                     }
 
-                    lblStatus.Text = $"查询成功，返回 {result.Rows.Count} 行，耗时 {duration} ms";
+                    page.LblStatus.Text = $"查询成功，返回 {result.Rows.Count} 行，耗时 {duration} ms";
 
                     _queryHistoryService.Add(new QueryHistoryItem
                     {
@@ -433,7 +462,7 @@ public partial class MainForm : Form
                 var duration = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds;
                 Invoke(() =>
                 {
-                    lblStatus.Text = $"查询失败：{ex.Message}";
+                    page.LblStatus.Text = $"查询失败：{ex.Message}";
 
                     _queryHistoryService.Add(new QueryHistoryItem
                     {
@@ -474,9 +503,12 @@ public partial class MainForm : Form
         _currentPreviewTableName = null;
         _currentPreviewPage = 1;
         _currentPreviewColumns = [];
+        CancelRowCount();
+        lblRowCount.Text = string.Empty;
         treeTables.Nodes.Clear();
+        _allTables = [];
+        txtTableSearch.Clear();
         gridColumns.DataSource = null;
-        gridResults.DataSource = null;
         gridPreview.DataSource = null;
         lblPreviewPage.Text = "第 1 页";
         lblStatus.Text = "未连接";
@@ -484,6 +516,13 @@ public partial class MainForm : Form
         cboPreviewField.Items.Clear();
         cboPreviewField.Items.Add(AllFieldsOption);
         cboPreviewField.SelectedIndex = 0;
+
+        foreach (var page in EnumerateQueryPages())
+        {
+            page.GridResults.DataSource = null;
+            page.LblStatus.Text = "未连接";
+            page.TxtSql.CompletionProvider = null;
+        }
     }
 
     private bool _themeApplied;
@@ -509,7 +548,6 @@ public partial class MainForm : Form
         Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
 
         txtPreviewKeyword.PlaceholderText = "输入值，或直接输入 字段名=数据";
-        txtSql.PlaceholderText = "请输入只读 SQL，例如：SELECT * FROM your_table LIMIT 100";
 
         lblAppTitle.Font = new Font("Segoe UI", 15F, FontStyle.Bold, GraphicsUnit.Point);
         lblAppTitle.ForeColor = accentColor;
@@ -538,7 +576,8 @@ public partial class MainForm : Form
         ApplyPanelChrome(headerActionsPanel, cardBackColor, Color.Transparent);
         ApplyPanelChrome(previewSearchPanel, chromeBackColor, borderColor);
         ApplyPanelChrome(previewButtonPanel, chromeBackColor, borderColor);
-        ApplyPanelChrome(sqlButtonPanel, chromeBackColor, borderColor);
+        ApplyPanelChrome(buttonsPanel, chromeBackColor, Color.Transparent);
+        ApplyPanelChrome(sqlToolbar, chromeBackColor, borderColor);
 
         lblConnection.ForeColor = subtleTextColor;
         lblConnection.TextAlign = ContentAlignment.MiddleLeft;
@@ -607,20 +646,23 @@ public partial class MainForm : Form
         tabMain.SizeMode = TabSizeMode.Fixed;
         tabMain.ItemSize = new Size(120, 36);
 
+        queryTabs.SizeMode = TabSizeMode.Fixed;
+        queryTabs.ItemSize = new Size(180, 36);
+        queryTabs.DrawItem += QueryTabs_DrawItem;
+        queryTabs.MouseClick += QueryTabs_MouseClick;
+        queryTabs.MouseMove += QueryTabs_MouseMove;
+        queryTabs.MouseLeave += QueryTabs_MouseLeave;
+        queryTabs.DoubleClick += QueryTabs_DoubleClick;
+
         StyleGrid(gridColumns);
-        StyleGrid(gridResults);
         StyleGrid(gridHistory);
         StyleGrid(gridPreview);
 
-        StyleActionButton(btnRunSql, accentColor);
         StyleGhostButton(btnPrevPage);
         StyleGhostButton(btnNextPage);
         StyleActionButton(btnApplyPreviewFilter, accentColor);
-        StyleGhostButton(btnClearSql);
-        StyleGhostButton(btnCopySql);
-        StyleGhostButton(btnExportResults);
+        StyleActionButton(btnAddQueryTab, accentColor);
         StyleGhostButton(btnResetPreviewFilter);
-        StyleGhostButton(btnRowCount);
         StyleGhostButton(btnExportPreview);
 
         lblStatus.BackColor = chromeBackColor;
@@ -633,11 +675,14 @@ public partial class MainForm : Form
         lblPreviewTip.ForeColor = subtleTextColor;
         lblPreviewTip.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
         lblPreviewTip.Text = "💡 支持 字段名=数据 快捷搜索";
+        lblRowCount.BackColor = chromeBackColor;
+        lblRowCount.ForeColor = textColor;
+        lblRowCount.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold, GraphicsUnit.Point);
 
         previewSearchPanel.BackColor = chromeBackColor;
         previewSearchPanel.Margin = new Padding(0);
         previewButtonPanel.BackColor = chromeBackColor;
-        sqlButtonPanel.BackColor = chromeBackColor;
+        sqlToolbar.BackColor = chromeBackColor;
         sqlLayout.BackColor = cardBackColor;
         previewLayout.BackColor = cardBackColor;
         tabMain.BackColor = cardBackColor;
@@ -658,8 +703,8 @@ public partial class MainForm : Form
         StyleComboBox(cboPreviewField);
         StyleComboBox(cboPreviewMatch);
         StyleTextInput(txtPreviewKeyword);
-        txtSql.ApplyTheme();
-        txtSql.PlaceholderText = "请输入只读 SQL，例如：SELECT * FROM your_table LIMIT 100";
+        StyleTextInput(txtTableSearch);
+        txtTableSearch.PlaceholderText = "搜索表名,实时过滤";
 
         AlignPreviewSearchControls();
     }
@@ -706,7 +751,7 @@ public partial class MainForm : Form
         grid.DefaultCellStyle.WrapMode = DataGridViewTriState.False;
         
         // 性能优化：设置列宽模式以提升滚动性能
-        if (ReferenceEquals(grid, gridPreview) || ReferenceEquals(grid, gridResults))
+        if (ReferenceEquals(grid, gridPreview) || IsQueryResultsGrid(grid))
         {
             // 加载时按内容计算一次列宽，滚动时保持固定。
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
@@ -715,6 +760,20 @@ public partial class MainForm : Form
         {
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
         }
+    }
+
+    private static bool IsQueryResultsGrid(DataGridView grid)
+    {
+        Control? current = grid;
+        while (current is not null)
+        {
+            if (current is DbLiteDesktop.Controls.QueryTabPage)
+            {
+                return true;
+            }
+            current = current.Parent;
+        }
+        return false;
     }
 
     private static void StyleActionButton(Button button, Color? accentColor = null)
@@ -975,15 +1034,41 @@ public partial class MainForm : Form
 
     private void btnRunSql_Click(object? sender, EventArgs e)
     {
-        RunSql();
+        // 按钮已迁移至每个 QueryTabPage，此占位避免设计器订阅失败。
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
-        // Ctrl+Enter: 执行 SQL
+        // Ctrl+Enter: 执行全部 SQL
         if (keyData == (Keys.Control | Keys.Enter))
         {
-            RunSql();
+            var page = GetActiveQueryPage();
+            if (page is not null)
+            {
+                RunSqlFor(page, preferSelection: false);
+            }
+            return true;
+        }
+
+        // Ctrl+E: 执行选中 SQL(无选中则执行全部)
+        if (keyData == (Keys.Control | Keys.E))
+        {
+            var page = GetActiveQueryPage();
+            if (page is not null)
+            {
+                RunSqlFor(page, preferSelection: true);
+            }
+            return true;
+        }
+
+        // Ctrl+Shift+F: 格式化当前查询页 SQL
+        if (keyData == (Keys.Control | Keys.Shift | Keys.F))
+        {
+            var page = GetActiveQueryPage();
+            if (page is not null)
+            {
+                FormatSqlFor(page);
+            }
             return true;
         }
 
@@ -1019,15 +1104,12 @@ public partial class MainForm : Form
 
     private void btnClearSql_Click(object? sender, EventArgs e)
     {
-        txtSql.Clear();
+        // 按钮已迁移至每个 QueryTabPage。
     }
 
     private void btnCopySql_Click(object? sender, EventArgs e)
     {
-        if (!string.IsNullOrWhiteSpace(txtSql.Text))
-        {
-            Clipboard.SetText(txtSql.Text);
-        }
+        // 按钮已迁移至每个 QueryTabPage。
     }
 
     private void btnPrevPage_Click(object? sender, EventArgs e)
@@ -1082,7 +1164,8 @@ public partial class MainForm : Form
 
         if (gridHistory.Rows[e.RowIndex].DataBoundItem is QueryHistoryItem item)
         {
-            txtSql.Text = item.SqlText;
+            var page = GetActiveQueryPage() ?? AddQueryTab();
+            page.TxtSql.Text = item.SqlText;
             tabMain.SelectedTab = tabSql;
         }
     }
@@ -1113,7 +1196,7 @@ public partial class MainForm : Form
 
     private void btnExportResults_Click(object? sender, EventArgs e)
     {
-        ExportGridData(gridResults, "查询结果");
+        // 按钮已迁移至每个 QueryTabPage。
     }
 
     private void GridResults_SortCompare(object? sender, DataGridViewSortCompareEventArgs e)
@@ -1174,36 +1257,489 @@ public partial class MainForm : Form
         }
     }
 
-    private void btnRowCount_Click(object? sender, EventArgs e)
+    private void UpdateRowCountAsync(string tableName)
     {
-        if (_currentConfig is null || _currentProvider is null || string.IsNullOrWhiteSpace(_currentPreviewTableName))
+        if (_currentConfig is null || _currentProvider is null)
         {
-            MessageBox.Show("请先选择表。", "提示");
             return;
         }
 
-        var tableName = _currentPreviewTableName;
-        SetLoading(true);
+        CancelRowCount();
+        var cts = new CancellationTokenSource();
+        _rowCountCts = cts;
+        var token = cts.Token;
+        var config = _currentConfig;
+        var provider = _currentProvider;
+        var password = GetPassword(config);
+
+        lblRowCount.Text = "正在统计行数…";
+        lblRowCount.ForeColor = SystemColors.ControlDark;
 
         Task.Run(() =>
         {
+            long count;
             try
             {
-                var count = _currentProvider.GetRowCount(_currentConfig, GetPassword(_currentConfig), tableName);
-                Invoke(() =>
-                {
-                    SetLoading(false);
-                    lblStatus.Text = $"表 {tableName} 共 {count:N0} 行";
-                });
+                count = provider.GetRowCount(config, password, tableName);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
             }
             catch (Exception ex)
             {
                 Invoke(() =>
                 {
-                    SetLoading(false);
-                    MessageBox.Show(ex.Message, "行数统计失败");
+                    if (token.IsCancellationRequested || _currentPreviewTableName != tableName)
+                    {
+                        return;
+                    }
+
+                    lblRowCount.Text = "行数统计失败";
+                    lblRowCount.ForeColor = Color.Firebrick;
+                    toolTip.SetToolTip(lblRowCount, ex.Message);
                 });
+                return;
             }
-        });
+
+            Invoke(() =>
+            {
+                if (token.IsCancellationRequested || _currentPreviewTableName != tableName)
+                {
+                    return;
+                }
+
+                lblRowCount.Text = $"共 {count:N0} 行";
+                lblRowCount.ForeColor = Color.FromArgb(15, 23, 42);
+                toolTip.SetToolTip(lblRowCount, string.Empty);
+            });
+        }, token);
+    }
+
+    private void CancelRowCount()
+    {
+        if (_rowCountCts is null)
+        {
+            return;
+        }
+
+        _rowCountCts.Cancel();
+        _rowCountCts.Dispose();
+        _rowCountCts = null;
+    }
+
+    private DbLiteDesktop.Controls.QueryTabPage AddQueryTab(string? sql = null)
+    {
+        _queryTabCounter++;
+        var page = new DbLiteDesktop.Controls.QueryTabPage($"查询 {_queryTabCounter}");
+
+        page.RunSqlRequested += (_, _) => RunSqlFor(page, preferSelection: true);
+        page.ClearSqlRequested += (_, _) => page.TxtSql.Clear();
+        page.CopySqlRequested += (_, _) =>
+        {
+            if (!string.IsNullOrWhiteSpace(page.TxtSql.Text))
+            {
+                Clipboard.SetText(page.TxtSql.Text);
+            }
+        };
+        page.FormatSqlRequested += (_, _) => FormatSqlFor(page);
+        page.ExportResultsRequested += (_, _) => ExportGridData(page.GridResults, "查询结果");
+        page.GridResults.SortCompare += GridResults_SortCompare;
+
+        var tabPage = new TabPage(page.Title);
+        tabPage.UseVisualStyleBackColor = true;
+        tabPage.Controls.Add(page);
+        queryTabs.TabPages.Add(tabPage);
+
+        StyleQueryTabPage(page);
+
+        page.TxtSql.CompletionProvider = BuildCompletionItems;
+        page.TxtSql.PlaceholderText = "请输入只读 SQL，例如：SELECT * FROM your_table LIMIT 100";
+
+        if (!string.IsNullOrEmpty(sql))
+        {
+            page.TxtSql.Text = sql;
+        }
+
+        queryTabs.SelectedTab = tabPage;
+        _ = page.TxtSql.Focus();
+        return page;
+    }
+
+    private void StyleQueryTabPage(DbLiteDesktop.Controls.QueryTabPage page)
+    {
+        if (!_themeApplied)
+        {
+            return;
+        }
+
+        var chromeBackColor = Color.FromArgb(251, 252, 253);
+        var borderColor = Color.FromArgb(226, 232, 240);
+        var accentColor = Color.FromArgb(59, 130, 246);
+
+        page.TxtSql.ApplyTheme();
+        page.TxtSql.PlaceholderText = "请输入只读 SQL，例如：SELECT * FROM your_table LIMIT 100";
+        StyleGrid(page.GridResults);
+        StyleActionButton(page.BtnRunSql, accentColor);
+        StyleGhostButton(page.BtnFormatSql);
+        StyleGhostButton(page.BtnClearSql);
+        StyleGhostButton(page.BtnCopySql);
+        StyleGhostButton(page.BtnExportResults);
+        ApplyPanelChrome(page.ButtonPanel, chromeBackColor, borderColor);
+
+        page.LblStatus.BackColor = chromeBackColor;
+        page.LblStatus.ForeColor = Color.FromArgb(100, 116, 139);
+        page.LblStatus.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
+        page.LblStatus.Padding = new Padding(16, 0, 0, 0);
+        page.LblStatus.BorderStyle = BorderStyle.None;
+    }
+
+    private DbLiteDesktop.Controls.QueryTabPage? GetQueryPage(TabPage? tabPage)
+    {
+        return tabPage?.Controls.OfType<DbLiteDesktop.Controls.QueryTabPage>().FirstOrDefault();
+    }
+
+    private DbLiteDesktop.Controls.QueryTabPage? GetActiveQueryPage()
+    {
+        return GetQueryPage(queryTabs.SelectedTab);
+    }
+
+    private IEnumerable<DbLiteDesktop.Controls.QueryTabPage> EnumerateQueryPages()
+    {
+        foreach (TabPage tabPage in queryTabs.TabPages)
+        {
+            var page = GetQueryPage(tabPage);
+            if (page is not null)
+            {
+                yield return page;
+            }
+        }
+    }
+
+    private List<string> BuildCompletionItems()
+    {
+        var items = new List<string>();
+        foreach (TreeNode node in treeTables.Nodes)
+        {
+            items.Add(node.Text);
+        }
+        items.AddRange(_currentPreviewColumns);
+        return items;
+    }
+
+    private void btnAddQueryTab_Click(object? sender, EventArgs e)
+    {
+        AddQueryTab();
+    }
+
+    private void ApplyTableFilter()
+    {
+        var keyword = txtTableSearch.Text.Trim();
+        treeTables.BeginUpdate();
+        try
+        {
+            treeTables.Nodes.Clear();
+            foreach (var table in _allTables)
+            {
+                if (string.IsNullOrEmpty(keyword)
+                    || table.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    treeTables.Nodes.Add(table);
+                }
+            }
+        }
+        finally
+        {
+            treeTables.EndUpdate();
+        }
+    }
+
+    private void txtTableSearch_TextChanged(object? sender, EventArgs e)
+    {
+        ApplyTableFilter();
+    }
+
+    private void FormatSqlFor(DbLiteDesktop.Controls.QueryTabPage page)
+    {
+        if (string.IsNullOrWhiteSpace(page.TxtSql.Text))
+        {
+            return;
+        }
+
+        var source = page.TxtSql.SelectionLength > 0
+            ? page.TxtSql.SelectedText
+            : page.TxtSql.Text;
+
+        var formatted = DbLiteDesktop.Utils.SqlFormatter.Format(source);
+        if (string.IsNullOrEmpty(formatted))
+        {
+            return;
+        }
+
+        if (page.TxtSql.SelectionLength > 0)
+        {
+            page.TxtSql.SelectedText = formatted;
+        }
+        else
+        {
+            page.TxtSql.Text = formatted;
+        }
+    }
+
+    private const int TabCloseButtonSize = 16;
+    private const int TabCloseButtonRightMargin = 8;
+
+    private static Rectangle GetTabCloseButtonRect(Rectangle tabBounds)
+    {
+        var x = tabBounds.Right - TabCloseButtonSize - TabCloseButtonRightMargin;
+        var y = tabBounds.Y + (tabBounds.Height - TabCloseButtonSize) / 2;
+        return new Rectangle(x, y, TabCloseButtonSize, TabCloseButtonSize);
+    }
+
+    private void QueryTabs_DrawItem(object? sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || e.Index >= queryTabs.TabPages.Count)
+        {
+            return;
+        }
+
+        var tabPage = queryTabs.TabPages[e.Index];
+        var bounds = e.Bounds;
+        var selected = e.Index == queryTabs.SelectedIndex;
+
+        using var bg = new SolidBrush(Color.White);
+        e.Graphics.FillRectangle(bg, bounds);
+
+        if (selected)
+        {
+            using var accentBrush = new SolidBrush(Color.FromArgb(59, 130, 246));
+            var indicator = new Rectangle(bounds.Left + 12, bounds.Bottom - 3, bounds.Width - 24, 2);
+            e.Graphics.FillRectangle(accentBrush, indicator);
+        }
+
+        var textColor = selected ? Color.FromArgb(59, 130, 246) : Color.FromArgb(100, 116, 139);
+        using var font = new Font("Segoe UI", 9F, selected ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point);
+        var textRect = new Rectangle(bounds.X + 12, bounds.Y, bounds.Width - TabCloseButtonSize - TabCloseButtonRightMargin - 12, bounds.Height);
+        TextRenderer.DrawText(e.Graphics, tabPage.Text, font, textRect, textColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+
+        var isLastTab = queryTabs.TabPages.Count <= 1;
+        var closeRect = GetTabCloseButtonRect(bounds);
+        var isHot = _hoveredCloseIndex == e.Index && !isLastTab;
+
+        if (isHot)
+        {
+            using var hoverBg = new SolidBrush(Color.FromArgb(254, 226, 226));
+            e.Graphics.FillRectangle(hoverBg, closeRect);
+        }
+
+        var closeColor = isLastTab
+            ? Color.FromArgb(203, 213, 225)
+            : isHot
+                ? Color.FromArgb(239, 68, 68)
+                : Color.FromArgb(148, 163, 184);
+
+        using var closeFont = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point);
+        TextRenderer.DrawText(e.Graphics, "×", closeFont, closeRect, closeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+    }
+
+    private void QueryTabs_MouseClick(object? sender, MouseEventArgs e)
+    {
+        for (var i = 0; i < queryTabs.TabPages.Count; i++)
+        {
+            var rect = queryTabs.GetTabRect(i);
+            if (!rect.Contains(e.Location))
+            {
+                continue;
+            }
+
+            if (e.Button == MouseButtons.Middle)
+            {
+                CloseQueryTab(i);
+                return;
+            }
+
+            if (e.Button == MouseButtons.Left && GetTabCloseButtonRect(rect).Contains(e.Location))
+            {
+                CloseQueryTab(i);
+                return;
+            }
+
+            if (e.Button == MouseButtons.Right)
+            {
+                ShowQueryTabContextMenu(i, e.Location);
+                return;
+            }
+
+            return;
+        }
+    }
+
+    private void QueryTabs_MouseMove(object? sender, MouseEventArgs e)
+    {
+        var newIndex = -1;
+        for (var i = 0; i < queryTabs.TabPages.Count; i++)
+        {
+            var rect = queryTabs.GetTabRect(i);
+            if (rect.Contains(e.Location) && GetTabCloseButtonRect(rect).Contains(e.Location))
+            {
+                newIndex = i;
+                break;
+            }
+        }
+
+        if (_hoveredCloseIndex != newIndex)
+        {
+            _hoveredCloseIndex = newIndex;
+            queryTabs.Invalidate();
+        }
+
+        queryTabs.Cursor = newIndex >= 0 && queryTabs.TabPages.Count > 1 ? Cursors.Hand : Cursors.Default;
+    }
+
+    private void QueryTabs_MouseLeave(object? sender, EventArgs e)
+    {
+        if (_hoveredCloseIndex != -1)
+        {
+            _hoveredCloseIndex = -1;
+            queryTabs.Invalidate();
+        }
+        queryTabs.Cursor = Cursors.Default;
+    }
+
+    private void QueryTabs_DoubleClick(object? sender, EventArgs e)
+    {
+        var pos = queryTabs.PointToClient(Cursor.Position);
+        for (var i = 0; i < queryTabs.TabPages.Count; i++)
+        {
+            var rect = queryTabs.GetTabRect(i);
+            if (rect.Contains(pos) && !GetTabCloseButtonRect(rect).Contains(pos))
+            {
+                CloseQueryTab(i);
+                return;
+            }
+        }
+    }
+
+    private void CloseQueryTab(int index)
+    {
+        if (index < 0 || index >= queryTabs.TabPages.Count)
+        {
+            return;
+        }
+
+        if (queryTabs.TabPages.Count <= 1)
+        {
+            return;
+        }
+
+        var tabPage = queryTabs.TabPages[index];
+        var page = GetQueryPage(tabPage);
+        if (page is not null)
+        {
+            page.GridResults.DataSource = null;
+            page.TxtSql.Clear();
+        }
+
+        var wasSelected = queryTabs.SelectedIndex == index;
+        queryTabs.TabPages.RemoveAt(index);
+
+        if (wasSelected && queryTabs.TabPages.Count > 0)
+        {
+            var newIndex = Math.Min(index, queryTabs.TabPages.Count - 1);
+            queryTabs.SelectedIndex = newIndex;
+        }
+    }
+
+    private void CloseOtherQueryTabs(int keepIndex)
+    {
+        if (keepIndex < 0 || keepIndex >= queryTabs.TabPages.Count)
+        {
+            return;
+        }
+
+        var keepPage = GetQueryPage(queryTabs.TabPages[keepIndex]);
+        for (var i = queryTabs.TabPages.Count - 1; i >= 0; i--)
+        {
+            if (i == keepIndex)
+            {
+                continue;
+            }
+
+            var page = GetQueryPage(queryTabs.TabPages[i]);
+            if (page is not null)
+            {
+                page.GridResults.DataSource = null;
+                page.TxtSql.Clear();
+            }
+            queryTabs.TabPages.RemoveAt(i);
+        }
+
+        if (keepPage is not null)
+        {
+            queryTabs.SelectedTab = queryTabs.TabPages[0];
+        }
+    }
+
+    private void CloseAllQueryTabs()
+    {
+        foreach (TabPage tabPage in queryTabs.TabPages)
+        {
+            var page = GetQueryPage(tabPage);
+            if (page is not null)
+            {
+                page.GridResults.DataSource = null;
+                page.TxtSql.Clear();
+            }
+        }
+        queryTabs.TabPages.Clear();
+        AddQueryTab();
+    }
+
+    private void ShowQueryTabContextMenu(int index, Point location)
+    {
+        _contextMenuQueryTabIndex = index;
+        var canClose = queryTabs.TabPages.Count > 1;
+
+        var menu = new ContextMenuStrip
+        {
+            BackColor = Color.White,
+            ForeColor = Color.FromArgb(15, 23, 42),
+            Font = new Font("Segoe UI", 9F, GraphicsUnit.Point),
+        };
+
+        var itemNew = new ToolStripMenuItem("新建查询");
+        itemNew.Click += (_, _) => AddQueryTab();
+        menu.Items.Add(itemNew);
+
+        menu.Items.Add(new ToolStripSeparator());
+
+        var itemClose = new ToolStripMenuItem("关闭");
+        itemClose.Enabled = canClose;
+        itemClose.Click += (_, _) =>
+        {
+            if (_contextMenuQueryTabIndex >= 0)
+            {
+                CloseQueryTab(_contextMenuQueryTabIndex);
+            }
+        };
+        menu.Items.Add(itemClose);
+
+        var itemCloseOthers = new ToolStripMenuItem("关闭其他");
+        itemCloseOthers.Enabled = canClose;
+        itemCloseOthers.Click += (_, _) =>
+        {
+            if (_contextMenuQueryTabIndex >= 0)
+            {
+                CloseOtherQueryTabs(_contextMenuQueryTabIndex);
+            }
+        };
+        menu.Items.Add(itemCloseOthers);
+
+        var itemCloseAll = new ToolStripMenuItem("关闭所有");
+        itemCloseAll.Click += (_, _) => CloseAllQueryTabs();
+        menu.Items.Add(itemCloseAll);
+
+        menu.Closed += (_, _) => { _hoveredCloseIndex = -1; queryTabs.Invalidate(); };
+        menu.Show(queryTabs, location);
     }
 }

@@ -25,6 +25,7 @@ partial class MainForm
     private TableLayoutPanel navigationLayout = null!;
     private Label lblTablesTitle = null!;
     private Label lblTablesSubtitle = null!;
+    private TextBox txtTableSearch = null!;
     private TreeView treeTables = null!;
     private Panel workspacePanel = null!;
     private TabControl tabMain = null!;
@@ -34,7 +35,6 @@ partial class MainForm
     private TabPage tabHistory = null!;
     private DataGridView gridColumns = null!;
     private DataGridView gridPreview = null!;
-    private DataGridView gridResults = null!;
     private DataGridView gridHistory = null!;
     private TableLayoutPanel previewLayout = null!;
     private TableLayoutPanel previewSearchPanel = null!;
@@ -46,21 +46,20 @@ partial class MainForm
     private TextBox txtPreviewKeyword = null!;
     private Button btnApplyPreviewFilter = null!;
     private Button btnResetPreviewFilter = null!;
-    private FlowLayoutPanel previewButtonPanel = null!;
+    private TableLayoutPanel previewButtonPanel = null!;
+    private FlowLayoutPanel buttonsPanel = null!;
     private Button btnPrevPage = null!;
     private Button btnNextPage = null!;
     private Label lblPreviewPage = null!;
     private Label lblPreviewTip = null!;
     private TableLayoutPanel sqlLayout = null!;
-    private DbLiteDesktop.Controls.SqlEditorTextBox txtSql = null!;
-    private FlowLayoutPanel sqlButtonPanel = null!;
-    private Button btnRunSql = null!;
-    private Button btnClearSql = null!;
-    private Button btnCopySql = null!;
-    private Button btnExportResults = null!;
+    private FlowLayoutPanel sqlToolbar = null!;
+    private Button btnAddQueryTab = null!;
+    private TabControl queryTabs = null!;
     private Button btnExportPreview = null!;
-    private Button btnRowCount = null!;
+    private Label lblRowCount = null!;
     private Label lblStatus = null!;
+    private ToolTip toolTip = null!;
 
     protected override void Dispose(bool disposing)
     {
@@ -75,6 +74,7 @@ partial class MainForm
     private void InitializeComponent()
     {
         components = new System.ComponentModel.Container();
+        toolTip = new ToolTip();
         mainLayout = new TableLayoutPanel();
         headerPanel = new Panel();
         headerLayout = new TableLayoutPanel();
@@ -97,6 +97,7 @@ partial class MainForm
         navigationLayout = new TableLayoutPanel();
         lblTablesTitle = new Label();
         lblTablesSubtitle = new Label();
+        txtTableSearch = new TextBox();
         treeTables = new TreeView();
         workspacePanel = new Panel();
         tabMain = new TabControl();
@@ -114,22 +115,19 @@ partial class MainForm
         btnApplyPreviewFilter = new Button();
         btnResetPreviewFilter = new Button();
         gridPreview = new DataGridView();
-        previewButtonPanel = new FlowLayoutPanel();
+        previewButtonPanel = new TableLayoutPanel();
+        buttonsPanel = new FlowLayoutPanel();
         btnPrevPage = new Button();
         btnNextPage = new Button();
         lblPreviewPage = new Label();
         lblPreviewTip = new Label();
         tabSql = new TabPage();
         sqlLayout = new TableLayoutPanel();
-        txtSql = new DbLiteDesktop.Controls.SqlEditorTextBox();
-        sqlButtonPanel = new FlowLayoutPanel();
-        btnRunSql = new Button();
-        btnClearSql = new Button();
-        btnCopySql = new Button();
-        btnExportResults = new Button();
-        btnRowCount = new Button();
+        sqlToolbar = new FlowLayoutPanel();
+        btnAddQueryTab = new Button();
+        queryTabs = new TabControl();
         btnExportPreview = new Button();
-        gridResults = new DataGridView();
+        lblRowCount = new Label();
         lblStatus = new Label();
         tabHistory = new TabPage();
         gridHistory = new DataGridView();
@@ -154,10 +152,10 @@ partial class MainForm
         previewSearchPanel.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)gridPreview).BeginInit();
         previewButtonPanel.SuspendLayout();
+        buttonsPanel.SuspendLayout();
         tabSql.SuspendLayout();
         sqlLayout.SuspendLayout();
-        sqlButtonPanel.SuspendLayout();
-        ((System.ComponentModel.ISupportInitialize)gridResults).BeginInit();
+        sqlToolbar.SuspendLayout();
         tabHistory.SuspendLayout();
         ((System.ComponentModel.ISupportInitialize)gridHistory).BeginInit();
         SuspendLayout();
@@ -302,13 +300,15 @@ partial class MainForm
         navigationLayout.ColumnCount = 1;
         navigationLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         navigationLayout.Dock = DockStyle.Fill;
-        navigationLayout.RowCount = 3;
+        navigationLayout.RowCount = 4;
         navigationLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
         navigationLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 24F));
+        navigationLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 36F));
         navigationLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
         navigationLayout.Controls.Add(lblTablesTitle, 0, 0);
         navigationLayout.Controls.Add(lblTablesSubtitle, 0, 1);
-        navigationLayout.Controls.Add(treeTables, 0, 2);
+        navigationLayout.Controls.Add(txtTableSearch, 0, 2);
+        navigationLayout.Controls.Add(treeTables, 0, 3);
         //
         // navigation labels
         //
@@ -318,6 +318,12 @@ partial class MainForm
         lblTablesSubtitle.Dock = DockStyle.Fill;
         lblTablesSubtitle.Text = "连接成功后显示当前数据库中的表。";
         lblTablesSubtitle.TextAlign = ContentAlignment.MiddleLeft;
+        //
+        // txtTableSearch
+        //
+        txtTableSearch.Dock = DockStyle.Fill;
+        txtTableSearch.Margin = new Padding(0, 4, 0, 4);
+        txtTableSearch.TextChanged += txtTableSearch_TextChanged;
         //
         // treeTables
         //
@@ -440,16 +446,28 @@ partial class MainForm
         //
         // previewButtonPanel
         //
-        previewButtonPanel.Controls.Add(btnPrevPage);
-        previewButtonPanel.Controls.Add(btnNextPage);
-        previewButtonPanel.Controls.Add(lblPreviewPage);
-        previewButtonPanel.Controls.Add(btnRowCount);
-        previewButtonPanel.Controls.Add(btnExportPreview);
-        previewButtonPanel.Controls.Add(lblPreviewTip);
+        previewButtonPanel.ColumnCount = 2;
+        previewButtonPanel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        previewButtonPanel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+        previewButtonPanel.Controls.Add(buttonsPanel, 0, 0);
+        previewButtonPanel.Controls.Add(lblRowCount, 1, 0);
         previewButtonPanel.Dock = DockStyle.Fill;
-        previewButtonPanel.FlowDirection = FlowDirection.LeftToRight;
-        previewButtonPanel.Padding = new Padding(12, 6, 12, 0);
-        previewButtonPanel.WrapContents = false;
+        previewButtonPanel.RowCount = 1;
+        previewButtonPanel.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+        //
+        // buttonsPanel
+        //
+        buttonsPanel.Controls.Add(btnPrevPage);
+        buttonsPanel.Controls.Add(btnNextPage);
+        buttonsPanel.Controls.Add(lblPreviewPage);
+        buttonsPanel.Controls.Add(btnExportPreview);
+        buttonsPanel.Controls.Add(lblPreviewTip);
+        buttonsPanel.AutoSize = true;
+        buttonsPanel.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        buttonsPanel.Dock = DockStyle.Fill;
+        buttonsPanel.FlowDirection = FlowDirection.LeftToRight;
+        buttonsPanel.Padding = new Padding(12, 6, 12, 0);
+        buttonsPanel.WrapContents = false;
         //
         // preview footer controls
         //
@@ -465,14 +483,18 @@ partial class MainForm
         lblPreviewTip.AutoSize = true;
         lblPreviewTip.Margin = new Padding(0, 9, 0, 0);
         lblPreviewTip.Text = "支持 字段名=数据";
-        btnRowCount.AutoSize = true;
-        btnRowCount.Text = "行数统计";
-        btnRowCount.Margin = new Padding(12, 2, 0, 0);
-        btnRowCount.Click += btnRowCount_Click;
         btnExportPreview.AutoSize = true;
         btnExportPreview.Text = "导出预览";
         btnExportPreview.Margin = new Padding(12, 2, 0, 0);
         btnExportPreview.Click += btnExportPreview_Click;
+        //
+        // lblRowCount
+        //
+        lblRowCount.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        lblRowCount.AutoSize = false;
+        lblRowCount.Padding = new Padding(0, 0, 12, 0);
+        lblRowCount.Text = "";
+        lblRowCount.TextAlign = ContentAlignment.MiddleRight;
         //
         // tabSql
         //
@@ -485,59 +507,35 @@ partial class MainForm
         sqlLayout.ColumnCount = 1;
         sqlLayout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
         sqlLayout.Dock = DockStyle.Fill;
-        sqlLayout.RowCount = 4;
-        sqlLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 132F));
+        sqlLayout.RowCount = 3;
         sqlLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44F));
         sqlLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
         sqlLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 32F));
-        sqlLayout.Controls.Add(txtSql, 0, 0);
-        sqlLayout.Controls.Add(sqlButtonPanel, 0, 1);
-        sqlLayout.Controls.Add(gridResults, 0, 2);
-        sqlLayout.Controls.Add(lblStatus, 0, 3);
+        sqlLayout.Controls.Add(sqlToolbar, 0, 0);
+        sqlLayout.Controls.Add(queryTabs, 0, 1);
+        sqlLayout.Controls.Add(lblStatus, 0, 2);
         //
-        // txtSql
+        // sqlToolbar
         //
-        txtSql.Dock = DockStyle.Fill;
-        txtSql.Font = new Font("Consolas", 10F, FontStyle.Regular, GraphicsUnit.Point);
-        txtSql.Multiline = true;
-        txtSql.ScrollBars = RichTextBoxScrollBars.Both;
-        txtSql.WordWrap = false;
+        sqlToolbar.Controls.Add(btnAddQueryTab);
+        sqlToolbar.Dock = DockStyle.Fill;
+        sqlToolbar.Padding = new Padding(8, 6, 8, 0);
+        sqlToolbar.WrapContents = false;
         //
-        // sqlButtonPanel
+        // btnAddQueryTab
         //
-        sqlButtonPanel.Controls.Add(btnRunSql);
-        sqlButtonPanel.Controls.Add(btnClearSql);
-        sqlButtonPanel.Controls.Add(btnCopySql);
-        sqlButtonPanel.Controls.Add(btnExportResults);
-        sqlButtonPanel.Dock = DockStyle.Fill;
-        sqlButtonPanel.FlowDirection = FlowDirection.LeftToRight;
-        sqlButtonPanel.Padding = new Padding(12, 8, 12, 0);
+        btnAddQueryTab.AutoSize = true;
+        btnAddQueryTab.Text = "+ 新建查询";
+        btnAddQueryTab.Click += btnAddQueryTab_Click;
         //
-        // sql buttons
+        // queryTabs
         //
-        btnRunSql.AutoSize = true;
-        btnRunSql.Text = "执行";
-        btnRunSql.Click += btnRunSql_Click;
-        btnClearSql.AutoSize = true;
-        btnClearSql.Text = "清空";
-        btnClearSql.Click += btnClearSql_Click;
-        btnCopySql.AutoSize = true;
-        btnCopySql.Text = "复制 SQL";
-        btnCopySql.Click += btnCopySql_Click;
-        btnExportResults.AutoSize = true;
-        btnExportResults.Text = "导出结果";
-        btnExportResults.Click += btnExportResults_Click;
-        //
-        // gridResults
-        //
-        gridResults.AllowUserToAddRows = false;
-        gridResults.AllowUserToDeleteRows = false;
-        gridResults.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-        gridResults.Dock = DockStyle.Fill;
-        gridResults.ReadOnly = true;
-        gridResults.RowHeadersVisible = false;
-        gridResults.AllowUserToOrderColumns = true;
-        gridResults.SortCompare += GridResults_SortCompare;
+        queryTabs.Dock = DockStyle.Fill;
+        queryTabs.Appearance = TabAppearance.Normal;
+        queryTabs.DrawMode = TabDrawMode.OwnerDrawFixed;
+        queryTabs.SizeMode = TabSizeMode.Fixed;
+        queryTabs.Padding = new Point(10, 6);
+        queryTabs.ItemSize = new Size(180, 36);
         //
         // lblStatus
         //
@@ -596,12 +594,13 @@ partial class MainForm
         ((System.ComponentModel.ISupportInitialize)gridPreview).EndInit();
         previewButtonPanel.ResumeLayout(false);
         previewButtonPanel.PerformLayout();
+        buttonsPanel.ResumeLayout(false);
+        buttonsPanel.PerformLayout();
         tabSql.ResumeLayout(false);
         sqlLayout.ResumeLayout(false);
         sqlLayout.PerformLayout();
-        sqlButtonPanel.ResumeLayout(false);
-        sqlButtonPanel.PerformLayout();
-        ((System.ComponentModel.ISupportInitialize)gridResults).EndInit();
+        sqlToolbar.ResumeLayout(false);
+        sqlToolbar.PerformLayout();
         tabHistory.ResumeLayout(false);
         ((System.ComponentModel.ISupportInitialize)gridHistory).EndInit();
         ResumeLayout(false);
