@@ -1,4 +1,5 @@
 using System.Data;
+using System.Drawing.Drawing2D;
 using DbLiteDesktop.Forms;
 using DbLiteDesktop.Models;
 using DbLiteDesktop.Providers;
@@ -71,7 +72,18 @@ public partial class MainForm : Form
 
     private void InitializePreviewCopyMenu()
     {
+        _previewCopyMenu.BackColor = Color.White;
+        _previewCopyMenu.ForeColor = Color.FromArgb(26, 35, 50);
+        _previewCopyMenu.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
+        _previewCopyMenu.ShowImageMargin = false;
+        _previewCopyMenu.RenderMode = ToolStripRenderMode.ManagerRenderMode;
+        _previewCopyMenu.Renderer = new LightMenuRenderer();
+
         var copyItem = new ToolStripMenuItem("复制");
+        copyItem.BackColor = Color.White;
+        copyItem.ForeColor = Color.FromArgb(26, 35, 50);
+        copyItem.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
+        copyItem.Margin = new Padding(8, 6, 8, 6);
         copyItem.Click += (_, _) =>
         {
             if (!string.IsNullOrEmpty(_previewCopyText))
@@ -252,15 +264,15 @@ public partial class MainForm : Form
                     _currentPreviewColumns = columns.Select(column => column.Name).Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
                     BindPreviewFields();
 
+                    // 给当前 active 查询页设置补全 provider(不覆盖用户输入)
                     var activePage = GetActiveQueryPage();
                     if (activePage is not null)
                     {
                         activePage.TxtSql.CompletionProvider = BuildCompletionItems;
-                        if (string.IsNullOrWhiteSpace(activePage.TxtSql.Text))
-                        {
-                            activePage.TxtSql.Text = _currentProvider.BuildPreviewSql(tableName, 100);
-                        }
                     }
+
+                    // 切表 → 新开查询标签页,带该表的预览 SQL(不覆盖任何已有页内容)
+                    AddQueryTab(_currentProvider.BuildPreviewSql(tableName, 100));
 
                     _currentPreviewTableName = tableName;
                     _currentPreviewPage = 1;
@@ -535,14 +547,19 @@ public partial class MainForm : Form
         }
 
         _themeApplied = true;
-        var pageBackColor = Color.FromArgb(245, 247, 250);
-        var cardBackColor = Color.White;
-        var chromeBackColor = Color.FromArgb(251, 252, 253);
-        var accentColor = Color.FromArgb(59, 130, 246);
-        var accentHoverColor = Color.FromArgb(37, 99, 235);
-        var borderColor = Color.FromArgb(226, 232, 240);
-        var textColor = Color.FromArgb(15, 23, 42);
-        var subtleTextColor = Color.FromArgb(100, 116, 139);
+
+        // Ocean Depths 浅色版配色
+        var pageBackColor = Color.FromArgb(243, 246, 250);     // #f3f6fa 整窗背景(极淡蓝灰)
+        var cardBackColor = Color.White;                       // 卡片纯白
+        var chromeBackColor = Color.FromArgb(244, 250, 248);   // Cream tint 工具栏
+        var inputBackColor = Color.FromArgb(248, 250, 252);    // 输入框背景
+        var accentColor = Color.FromArgb(45, 139, 139);        // #2d8b8b Teal accent
+        var accentHoverColor = Color.FromArgb(37, 112, 112);   // hover
+        var accentLight = Color.FromArgb(168, 218, 220);       // #a8dadc Seafoam
+        var borderColor = Color.FromArgb(203, 213, 225);       // #cbd5e1 描边
+        var textColor = Color.FromArgb(26, 35, 50);            // #1a2332 Deep Navy 主文字
+        var subtleTextColor = Color.FromArgb(90, 110, 130);    // 次级灰蓝
+        var rowAltColor = Color.FromArgb(244, 250, 248);       // 交替行 Cream tint
 
         BackColor = pageBackColor;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
@@ -557,7 +574,6 @@ public partial class MainForm : Form
         lblAppTitle.TextAlign = ContentAlignment.MiddleLeft;
         lblAppSubtitle.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
         lblAppSubtitle.ForeColor = subtleTextColor;
-        // lblAppSubtitle.Text = "✨ 轻量级只读数据库客户端";
         lblAppSubtitle.Visible = true;
         lblAppSubtitle.AutoSize = true;
         lblAppSubtitle.Location = new Point(0, 38);
@@ -609,23 +625,23 @@ public partial class MainForm : Form
         treeTables.DrawMode = TreeViewDrawMode.OwnerDrawText;
         treeTables.DrawNode += (sender, e) => {
             if (e.Node == null) return;
-            
+
             var bounds = e.Bounds;
             var isSelected = (e.State & TreeNodeStates.Selected) != 0;
             var isHot = (e.State & TreeNodeStates.Hot) != 0;
-            
-            if (isSelected || isHot) {
-                using var brush = new SolidBrush(
-                    isSelected ? Color.FromArgb(219, 234, 254) : Color.FromArgb(241, 245, 249)
-                );
-                e.Graphics.FillRectangle(brush, new Rectangle(0, bounds.Top, treeTables.Width, bounds.Height));
-                
-                if (isSelected) {
-                    using var pen = new Pen(Color.FromArgb(59, 130, 246), 2);
-                    e.Graphics.DrawLine(pen, 0, bounds.Bottom - 1, treeTables.Width, bounds.Bottom - 1);
-                }
+
+            var rowRect = new Rectangle(0, bounds.Top, treeTables.Width, bounds.Height);
+            if (isSelected) {
+                // 选中:不透明 Seafoam 背景 + Teal 左侧指示条
+                using var selBrush = new SolidBrush(Color.FromArgb(168, 218, 220));
+                e.Graphics.FillRectangle(selBrush, rowRect);
+                using var accentPen = new Pen(accentColor, 3);
+                e.Graphics.DrawLine(accentPen, 0, bounds.Top, 0, bounds.Bottom - 1);
+            } else if (isHot) {
+                using var hotBrush = new SolidBrush(Color.FromArgb(241, 245, 249));
+                e.Graphics.FillRectangle(hotBrush, rowRect);
             }
-            
+
             using var boldFont = isSelected || isHot
                 ? new Font(treeTables.Font, FontStyle.Bold)
                 : null;
@@ -635,7 +651,7 @@ public partial class MainForm : Form
                 e.Node.Text,
                 boldFont ?? treeTables.Font,
                 new Rectangle(bounds.X + 4, bounds.Y, bounds.Width, bounds.Height),
-                isSelected ? Color.FromArgb(15, 23, 42) : Color.FromArgb(71, 85, 105),
+                isSelected ? textColor : subtleTextColor,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter
             );
         };
@@ -676,7 +692,7 @@ public partial class MainForm : Form
         lblPreviewTip.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
         lblPreviewTip.Text = "💡 支持 字段名=数据 快捷搜索";
         lblRowCount.BackColor = chromeBackColor;
-        lblRowCount.ForeColor = textColor;
+        lblRowCount.ForeColor = accentColor;
         lblRowCount.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold, GraphicsUnit.Point);
 
         previewSearchPanel.BackColor = chromeBackColor;
@@ -689,6 +705,13 @@ public partial class MainForm : Form
         headerPanel.BackColor = cardBackColor;
         navigationPanel.BackColor = cardBackColor;
         workspacePanel.BackColor = cardBackColor;
+
+        // 显式设置 4 个 TabPage 浅色背景(避免系统默认灰色)
+        tabColumns.BackColor = cardBackColor;
+        tabPreview.BackColor = cardBackColor;
+        tabSql.BackColor = cardBackColor;
+        tabHistory.BackColor = cardBackColor;
+        queryTabs.BackColor = cardBackColor;
 
         lblPreviewField.ForeColor = subtleTextColor;
         lblPreviewMatch.ForeColor = subtleTextColor;
@@ -711,49 +734,54 @@ public partial class MainForm : Form
 
     private void StyleGrid(DataGridView grid)
     {
-        // 性能优化：启用双缓冲
-        typeof(DataGridView).InvokeMember(
-            "DoubleBuffered",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.SetProperty,
-            null,
-            grid,
-            new object[] { true }
-        );
+        EnableDoubleBuffering(grid);
 
-        grid.BackgroundColor = Color.White;
+        // Ocean Depths 浅色版 - 表格
+        var gridBackColor = Color.White;                              // 卡片背景
+        var gridHeaderBackColor = Color.FromArgb(244, 250, 248);      // Cream tint 表头
+        var gridRowAltColor = Color.FromArgb(248, 250, 252);          // 极淡交替行
+        var gridSelectionColor = Color.FromArgb(168, 218, 220);    // Seafoam 不透明选中
+        var gridTextColor = Color.FromArgb(26, 35, 50);               // 主文字 Deep Navy
+        var gridSubtleColor = Color.FromArgb(90, 110, 130);           // 表头次级灰蓝
+        var gridLineColor = Color.FromArgb(226, 232, 240);            // 极淡分隔线
+
+        grid.BackgroundColor = gridBackColor;
         grid.BorderStyle = BorderStyle.None;
         grid.CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal;
         grid.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
         grid.EnableHeadersVisualStyles = false;
-        
-        // 性能优化：减少不必要的重绘
+
         grid.RowHeadersWidthSizeMode = DataGridViewRowHeadersWidthSizeMode.DisableResizing;
-        
-        grid.GridColor = Color.FromArgb(241, 245, 249);
-        grid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(248, 250, 252);
-        grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(15, 23, 42);
-        grid.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9F, FontStyle.Bold, GraphicsUnit.Point);
-        grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(8, 12, 8, 12);
-        grid.ColumnHeadersHeight = 44;
+        grid.RowHeadersDefaultCellStyle.BackColor = gridHeaderBackColor;
+        grid.RowHeadersDefaultCellStyle.ForeColor = gridSubtleColor;
+        grid.RowHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
+
+        grid.GridColor = gridLineColor;
+        grid.ColumnHeadersDefaultCellStyle.BackColor = gridHeaderBackColor;
+        grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(26, 35, 50);
+        grid.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point);
+        grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(12, 14, 12, 14);
+        grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = gridHeaderBackColor;
+        grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = Color.FromArgb(26, 35, 50);
+        grid.ColumnHeadersHeight = 48;
         grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
-        grid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(219, 234, 254);
-        grid.DefaultCellStyle.SelectionForeColor = Color.FromArgb(15, 23, 42);
-        grid.DefaultCellStyle.BackColor = Color.White;
-        grid.DefaultCellStyle.ForeColor = Color.FromArgb(71, 85, 105);
-        grid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(248, 250, 252);
-        grid.DefaultCellStyle.Padding = new Padding(8, 8, 8, 8);
-        grid.RowTemplate.Height = 36;
+        grid.DefaultCellStyle.SelectionBackColor = gridSelectionColor;
+        grid.DefaultCellStyle.SelectionForeColor = gridTextColor;
+        grid.DefaultCellStyle.BackColor = gridBackColor;
+        grid.DefaultCellStyle.ForeColor = gridTextColor;
+        grid.AlternatingRowsDefaultCellStyle.BackColor = gridRowAltColor;
+        grid.AlternatingRowsDefaultCellStyle.ForeColor = gridTextColor;
+        grid.DefaultCellStyle.Padding = new Padding(10, 10, 10, 10);
+        grid.RowTemplate.Height = 40;
         grid.RowTemplate.Resizable = DataGridViewTriState.False;
         grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
         grid.ScrollBars = ScrollBars.Both;
         grid.AllowUserToResizeRows = false;
         grid.DefaultCellStyle.WrapMode = DataGridViewTriState.False;
-        
-        // 性能优化：设置列宽模式以提升滚动性能
+
         if (ReferenceEquals(grid, gridPreview) || IsQueryResultsGrid(grid))
         {
-            // 加载时按内容计算一次列宽，滚动时保持固定。
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         }
         else
@@ -778,84 +806,177 @@ public partial class MainForm : Form
 
     private static void StyleActionButton(Button button, Color? accentColor = null)
     {
+        var baseColor = accentColor ?? Color.FromArgb(45, 139, 139);
+        var hoverColor = ControlPaint.Light(baseColor, 0.12F);
+        var pressedColor = ControlPaint.Dark(baseColor, 0.08F);
+
         button.FlatStyle = FlatStyle.Flat;
         button.FlatAppearance.BorderSize = 0;
-        button.BackColor = accentColor ?? Color.FromArgb(59, 130, 246);
+        button.FlatAppearance.MouseOverBackColor = baseColor;
+        button.FlatAppearance.MouseDownBackColor = pressedColor;
+        button.BackColor = baseColor;
         button.ForeColor = Color.White;
         button.Font = new Font("Segoe UI", 9F, FontStyle.Bold, GraphicsUnit.Point);
         button.Padding = new Padding(16, 8, 16, 8);
         button.Margin = new Padding(0, 0, 10, 0);
         button.MinimumSize = new Size(0, 36);
         button.Cursor = Cursors.Hand;
-        
-        button.MouseEnter += (_, _) => button.BackColor = accentColor ?? Color.FromArgb(37, 99, 235);
-        button.MouseLeave += (_, _) => button.BackColor = accentColor ?? Color.FromArgb(59, 130, 246);
+
+        ApplyRoundedRegion(button, 7);
+
+        var isHover = false;
+        var isPressed = false;
+        button.Paint += (sender, args) =>
+        {
+            var btn = (Button)sender!;
+            var g = args.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            var rect = new Rectangle(0, 0, btn.Width - 1, btn.Height - 1);
+            var topColor = isPressed ? pressedColor : (isHover ? hoverColor : baseColor);
+            var bottomColor = ControlPaint.Dark(topColor, 0.14F);
+
+            using var path = CreateRoundedRectPath(rect, 7);
+            using var brush = new LinearGradientBrush(
+                rect, topColor, bottomColor, LinearGradientMode.Vertical);
+            g.FillPath(brush, path);
+
+            TextRenderer.DrawText(
+                g, btn.Text, btn.Font, rect, btn.ForeColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        };
+        button.MouseDown += (_, _) => { isPressed = true; button.Invalidate(); };
+        button.MouseUp += (_, _) => { isPressed = false; button.Invalidate(); };
+        button.MouseEnter += (_, _) => { isHover = true; button.Invalidate(); };
+        button.MouseLeave += (_, _) => { isHover = false; isPressed = false; button.Invalidate(); };
     }
 
     private static void StyleGhostButton(Button button)
     {
+        var backColor = Color.White;
+        var hoverColor = Color.FromArgb(244, 250, 248);
+        var borderColor = Color.FromArgb(203, 213, 225);
+        var hoverBorder = Color.FromArgb(45, 139, 139);
+        var textColor = Color.FromArgb(26, 35, 50);
+        var hoverText = Color.FromArgb(45, 139, 139);
+
         button.FlatStyle = FlatStyle.Flat;
-        button.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
-        button.FlatAppearance.BorderSize = 1;
-        button.BackColor = Color.White;
-        button.ForeColor = Color.FromArgb(71, 85, 105);
+        button.FlatAppearance.BorderSize = 0;
+        button.BackColor = backColor;
+        button.ForeColor = textColor;
         button.Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
         button.Padding = new Padding(14, 7, 14, 7);
         button.Margin = new Padding(0, 0, 10, 0);
         button.MinimumSize = new Size(0, 35);
         button.Cursor = Cursors.Hand;
-        
-        button.MouseEnter += (_, _) => {
-            button.BackColor = Color.FromArgb(248, 250, 252);
-            button.FlatAppearance.BorderColor = Color.FromArgb(148, 163, 184);
+
+        ApplyRoundedRegion(button, 6);
+
+        var isHover = false;
+        button.Paint += (sender, args) =>
+        {
+            var btn = (Button)sender!;
+            var g = args.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            var rect = new Rectangle(0, 0, btn.Width - 1, btn.Height - 1);
+            using var path = CreateRoundedRectPath(rect, 6);
+
+            using var bgBrush = new SolidBrush(isHover ? hoverColor : backColor);
+            g.FillPath(bgBrush, path);
+
+            using var pen = new Pen(isHover ? hoverBorder : borderColor, isHover ? 1.6F : 1F);
+            g.DrawPath(pen, path);
+
+            TextRenderer.DrawText(
+                g, btn.Text, btn.Font, rect, isHover ? hoverText : textColor,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         };
-        button.MouseLeave += (_, _) => {
-            button.BackColor = Color.White;
-            button.FlatAppearance.BorderColor = Color.FromArgb(203, 213, 225);
-        };
+        button.MouseEnter += (_, _) => { isHover = true; button.Invalidate(); };
+        button.MouseLeave += (_, _) => { isHover = false; button.Invalidate(); };
     }
 
     private static void StyleHeaderButton(Button button, bool emphasize, Color? accentColor = null)
     {
+        var baseColor = accentColor ?? Color.FromArgb(45, 139, 139);
+        var hoverColor = ControlPaint.Light(baseColor, 0.12F);
+
+        var backColor = Color.White;
+        var hoverBackColor = Color.FromArgb(244, 250, 248);
+        var borderColor = Color.FromArgb(203, 213, 225);
+        var textColor = Color.FromArgb(26, 35, 50);
+        var subtleText = Color.FromArgb(90, 110, 130);
+
         button.FlatStyle = FlatStyle.Flat;
-        button.FlatAppearance.BorderSize = emphasize ? 0 : 1;
-        button.FlatAppearance.BorderColor = Color.FromArgb(226, 232, 240);
+        button.FlatAppearance.BorderSize = 0;
         button.Margin = new Padding(3, 6, 3, 6);
         button.Padding = new Padding(12, 6, 12, 6);
         button.MinimumSize = new Size(0, 36);
         button.Font = new Font("Segoe UI", 8.75F, emphasize ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point);
-        button.ForeColor = emphasize ? Color.White : Color.FromArgb(71, 85, 105);
-        button.BackColor = emphasize ? accentColor ?? Color.FromArgb(59, 130, 246) : Color.White;
+        button.ForeColor = emphasize ? Color.White : subtleText;
+        button.BackColor = emphasize ? baseColor : backColor;
         button.Cursor = Cursors.Hand;
-        
-        if (emphasize) {
-            button.MouseEnter += (_, _) => button.BackColor = accentColor ?? Color.FromArgb(37, 99, 235);
-            button.MouseLeave += (_, _) => button.BackColor = accentColor ?? Color.FromArgb(59, 130, 246);
-        } else {
-            button.MouseEnter += (_, _) => {
-                button.BackColor = Color.FromArgb(248, 250, 252);
-                button.ForeColor = Color.FromArgb(15, 23, 42);
-            };
-            button.MouseLeave += (_, _) => {
-                button.BackColor = Color.White;
-                button.ForeColor = Color.FromArgb(71, 85, 105);
-            };
-        }
+
+        ApplyRoundedRegion(button, emphasize ? 7 : 6);
+
+        var isHover = false;
+        button.Paint += (sender, args) =>
+        {
+            var btn = (Button)sender!;
+            var g = args.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            var radius = emphasize ? 7 : 6;
+            var rect = new Rectangle(0, 0, btn.Width - 1, btn.Height - 1);
+            using var path = CreateRoundedRectPath(rect, radius);
+
+            if (emphasize)
+            {
+                var top = isHover ? hoverColor : baseColor;
+                var bottom = ControlPaint.Dark(top, 0.14F);
+                using var grad = new LinearGradientBrush(rect, top, bottom, LinearGradientMode.Vertical);
+                g.FillPath(grad, path);
+            }
+            else
+            {
+                using var bg = new SolidBrush(isHover ? hoverBackColor : backColor);
+                g.FillPath(bg, path);
+                using var pen = new Pen(isHover ? baseColor : borderColor, 1);
+                g.DrawPath(pen, path);
+            }
+
+            TextRenderer.DrawText(
+                g, btn.Text, btn.Font, rect,
+                emphasize ? Color.White : (isHover ? textColor : subtleText),
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        };
+        button.MouseEnter += (_, _) => { isHover = true; button.Invalidate(); };
+        button.MouseLeave += (_, _) => { isHover = false; button.Invalidate(); };
     }
 
     private static void ApplyPanelChrome(Panel panel, Color backColor, Color borderColor)
     {
         panel.BackColor = backColor;
+        EnableDoubleBuffering(panel);
+        if (borderColor == Color.Transparent)
+        {
+            return;
+        }
+
         panel.Paint += (_, args) =>
         {
-            if (borderColor == Color.Transparent)
-            {
-                return;
-            }
+            var g = args.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
 
-            using var pen = new Pen(borderColor, 1);
             var rect = new Rectangle(0, 0, panel.Width - 1, panel.Height - 1);
-            args.Graphics.DrawRectangle(pen, rect);
+
+            // 1px 描边
+            using var pen = new Pen(borderColor, 1);
+            g.DrawRectangle(pen, rect);
+
+            // 底部 1px 极淡投影,模拟卡片浮起
+            using var shadowPen = new Pen(Color.FromArgb(22, 100, 116, 139), 1);
+            g.DrawLine(shadowPen, 1, panel.Height, panel.Width - 2, panel.Height);
         };
     }
 
@@ -863,17 +984,90 @@ public partial class MainForm : Form
     {
         comboBox.FlatStyle = FlatStyle.Flat;
         comboBox.BackColor = Color.White;
-        comboBox.ForeColor = Color.FromArgb(71, 85, 105);
-        comboBox.Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+        comboBox.ForeColor = Color.FromArgb(26, 35, 50);
+        comboBox.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
         comboBox.IntegralHeight = false;
+        comboBox.DrawMode = DrawMode.OwnerDrawFixed;
+        comboBox.ItemHeight = 26;
+        comboBox.DrawItem += (sender, e) =>
+        {
+            if (e.Index < 0)
+            {
+                return;
+            }
+
+            var cb = (ComboBox)sender!;
+            var isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            var bg = isSelected ? Color.FromArgb(168, 218, 220) : Color.White;
+            var fg = Color.FromArgb(26, 35, 50);
+
+            using var bgBrush = new SolidBrush(bg);
+            e.Graphics.FillRectangle(bgBrush, e.Bounds);
+
+            // 顶部主框显示时也走这里,用控件背景统一
+            TextRenderer.DrawText(
+                e.Graphics,
+                cb.Items[e.Index]?.ToString() ?? string.Empty,
+                e.Font,
+                new Rectangle(e.Bounds.X + 8, e.Bounds.Y, e.Bounds.Width - 8, e.Bounds.Height),
+                fg,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+        };
     }
 
     private static void StyleTextInput(TextBox textBox)
     {
         textBox.BorderStyle = BorderStyle.FixedSingle;
-        textBox.BackColor = Color.White;
-        textBox.ForeColor = Color.FromArgb(71, 85, 105);
+        textBox.BackColor = Color.FromArgb(248, 250, 252);
+        textBox.ForeColor = Color.FromArgb(26, 35, 50);
         textBox.Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
+    }
+
+    private static void EnableDoubleBuffering(Control control)
+    {
+        typeof(Control).InvokeMember(
+            "DoubleBuffered",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.SetProperty,
+            null,
+            control,
+            new object[] { true }
+        );
+    }
+
+    private static GraphicsPath CreateRoundedRectPath(Rectangle rect, int radius)
+    {
+        var path = new GraphicsPath();
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            return path;
+        }
+
+        var d = Math.Max(1, radius * 2);
+        var arcW = Math.Min(d, rect.Width);
+        var arcH = Math.Min(d, rect.Height);
+
+        path.AddArc(rect.X, rect.Y, arcW, arcH, 180, 90);
+        path.AddArc(rect.Right - arcW, rect.Y, arcW, arcH, 270, 90);
+        path.AddArc(rect.Right - arcW, rect.Bottom - arcH, arcW, arcH, 0, 90);
+        path.AddArc(rect.X, rect.Bottom - arcH, arcW, arcH, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    private static void ApplyRoundedRegion(Control control, int radius)
+    {
+        void UpdateRegion()
+        {
+            if (control.Width <= 0 || control.Height <= 0)
+            {
+                return;
+            }
+            using var path = CreateRoundedRectPath(new Rectangle(0, 0, control.Width, control.Height), radius);
+            control.Region = new Region(path);
+        }
+
+        UpdateRegion();
+        control.SizeChanged += (_, _) => UpdateRegion();
     }
 
     private void AlignPreviewSearchControls()
@@ -917,27 +1111,26 @@ public partial class MainForm : Form
         var tabPage = tabMain.TabPages[e.Index];
         var bounds = e.Bounds;
         var selected = e.Index == tabMain.SelectedIndex;
-        var backgroundColor = Color.White;
-        var textColor = selected ? Color.FromArgb(59, 130, 246) : Color.FromArgb(100, 116, 139);
         var hot = e.State == DrawItemState.HotLight;
 
-        using var background = new SolidBrush(backgroundColor);
-        using var linePen = new Pen(Color.FromArgb(226, 232, 240), 1);
-        using var accentPen = new Pen(Color.FromArgb(59, 130, 246), 2);
-        using var hotBrush = new SolidBrush(Color.FromArgb(248, 250, 252));
-        
-        e.Graphics.FillRectangle(background, bounds);
-        
-        if (hot && !selected) {
-            e.Graphics.FillRectangle(hotBrush, bounds);
-        }
-        
-        if (selected) {
-            var accentBounds = new Rectangle(bounds.Left + 16, bounds.Bottom - 3, bounds.Width - 32, 2);
-            e.Graphics.FillRectangle(accentPen.Brush, accentBounds);
-        }
+        // Ocean Depths 浅色
+        var backgroundColor = selected
+            ? Color.White
+            : hot
+                ? Color.FromArgb(244, 250, 248)
+                : Color.FromArgb(241, 245, 249);
+        var textColor = selected ? Color.FromArgb(45, 139, 139) : Color.FromArgb(90, 110, 130);
+        var accentColor = Color.FromArgb(45, 139, 139);
 
-        e.Graphics.DrawLine(linePen, bounds.Left, bounds.Bottom - 1, bounds.Right, bounds.Bottom - 1);
+        using var background = new SolidBrush(backgroundColor);
+        e.Graphics.FillRectangle(background, bounds);
+
+        if (selected)
+        {
+            var accentBounds = new Rectangle(bounds.Left, bounds.Bottom - 3, bounds.Width, 3);
+            using var accentBrush = new SolidBrush(accentColor);
+            e.Graphics.FillRectangle(accentBrush, accentBounds);
+        }
 
         using var selectedFont = selected ? new Font(tabMain.Font, FontStyle.Bold) : null;
         TextRenderer.DrawText(
@@ -945,7 +1138,7 @@ public partial class MainForm : Form
             tabPage.Text,
             selectedFont ?? tabMain.Font,
             bounds,
-            hot && !selected ? Color.FromArgb(15, 23, 42) : textColor,
+            hot && !selected ? Color.FromArgb(26, 35, 50) : textColor,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
         );
     }
@@ -1373,9 +1566,9 @@ public partial class MainForm : Form
             return;
         }
 
-        var chromeBackColor = Color.FromArgb(251, 252, 253);
-        var borderColor = Color.FromArgb(226, 232, 240);
-        var accentColor = Color.FromArgb(59, 130, 246);
+        var chromeBackColor = Color.FromArgb(244, 250, 248);
+        var borderColor = Color.FromArgb(203, 213, 225);
+        var accentColor = Color.FromArgb(45, 139, 139);
 
         page.TxtSql.ApplyTheme();
         page.TxtSql.PlaceholderText = "请输入只读 SQL，例如：SELECT * FROM your_table LIMIT 100";
@@ -1387,8 +1580,9 @@ public partial class MainForm : Form
         StyleGhostButton(page.BtnExportResults);
         ApplyPanelChrome(page.ButtonPanel, chromeBackColor, borderColor);
 
+        page.BackColor = Color.White;
         page.LblStatus.BackColor = chromeBackColor;
-        page.LblStatus.ForeColor = Color.FromArgb(100, 116, 139);
+        page.LblStatus.ForeColor = Color.FromArgb(90, 110, 130);
         page.LblStatus.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
         page.LblStatus.Padding = new Padding(16, 0, 0, 0);
         page.LblStatus.BorderStyle = BorderStyle.None;
@@ -1507,17 +1701,21 @@ public partial class MainForm : Form
         var bounds = e.Bounds;
         var selected = e.Index == queryTabs.SelectedIndex;
 
-        using var bg = new SolidBrush(Color.White);
+        // Ocean Depths 浅色
+        var bgColor = selected
+            ? Color.White
+            : Color.FromArgb(241, 245, 249);
+        using var bg = new SolidBrush(bgColor);
         e.Graphics.FillRectangle(bg, bounds);
 
         if (selected)
         {
-            using var accentBrush = new SolidBrush(Color.FromArgb(59, 130, 246));
-            var indicator = new Rectangle(bounds.Left + 12, bounds.Bottom - 3, bounds.Width - 24, 2);
-            e.Graphics.FillRectangle(accentBrush, indicator);
+            var accentBounds = new Rectangle(bounds.Left, bounds.Bottom - 3, bounds.Width, 3);
+            using var accentBrush = new SolidBrush(Color.FromArgb(45, 139, 139));
+            e.Graphics.FillRectangle(accentBrush, accentBounds);
         }
 
-        var textColor = selected ? Color.FromArgb(59, 130, 246) : Color.FromArgb(100, 116, 139);
+        var textColor = selected ? Color.FromArgb(26, 35, 50) : Color.FromArgb(90, 110, 130);
         using var font = new Font("Segoe UI", 9F, selected ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point);
         var textRect = new Rectangle(bounds.X + 12, bounds.Y, bounds.Width - TabCloseButtonSize - TabCloseButtonRightMargin - 12, bounds.Height);
         TextRenderer.DrawText(e.Graphics, tabPage.Text, font, textRect, textColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
@@ -1528,15 +1726,15 @@ public partial class MainForm : Form
 
         if (isHot)
         {
-            using var hoverBg = new SolidBrush(Color.FromArgb(254, 226, 226));
+            using var hoverBg = new SolidBrush(Color.FromArgb(255, 235, 235));
             e.Graphics.FillRectangle(hoverBg, closeRect);
         }
 
         var closeColor = isLastTab
-            ? Color.FromArgb(203, 213, 225)
+            ? Color.FromArgb(200, 210, 220)
             : isHot
-                ? Color.FromArgb(239, 68, 68)
-                : Color.FromArgb(148, 163, 184);
+                ? Color.FromArgb(220, 60, 60)
+                : Color.FromArgb(120, 135, 150);
 
         using var closeFont = new Font("Segoe UI", 11F, FontStyle.Bold, GraphicsUnit.Point);
         TextRenderer.DrawText(e.Graphics, "×", closeFont, closeRect, closeColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
@@ -1680,6 +1878,48 @@ public partial class MainForm : Form
         }
     }
 
+    private void CloseLeftQueryTabs(int keepIndex)
+    {
+        if (keepIndex <= 0 || keepIndex >= queryTabs.TabPages.Count)
+        {
+            return;
+        }
+
+        for (var i = keepIndex - 1; i >= 0; i--)
+        {
+            var page = GetQueryPage(queryTabs.TabPages[i]);
+            if (page is not null)
+            {
+                page.GridResults.DataSource = null;
+                page.TxtSql.Clear();
+            }
+            queryTabs.TabPages.RemoveAt(i);
+        }
+
+        queryTabs.SelectedIndex = 0;
+    }
+
+    private void CloseRightQueryTabs(int keepIndex)
+    {
+        if (keepIndex < 0 || keepIndex >= queryTabs.TabPages.Count)
+        {
+            return;
+        }
+
+        for (var i = queryTabs.TabPages.Count - 1; i > keepIndex; i--)
+        {
+            var page = GetQueryPage(queryTabs.TabPages[i]);
+            if (page is not null)
+            {
+                page.GridResults.DataSource = null;
+                page.TxtSql.Clear();
+            }
+            queryTabs.TabPages.RemoveAt(i);
+        }
+
+        queryTabs.SelectedIndex = keepIndex;
+    }
+
     private void CloseAllQueryTabs()
     {
         foreach (TabPage tabPage in queryTabs.TabPages)
@@ -1703,8 +1943,11 @@ public partial class MainForm : Form
         var menu = new ContextMenuStrip
         {
             BackColor = Color.White,
-            ForeColor = Color.FromArgb(15, 23, 42),
+            ForeColor = Color.FromArgb(26, 35, 50),
             Font = new Font("Segoe UI", 9F, GraphicsUnit.Point),
+            ShowImageMargin = false,
+            RenderMode = ToolStripRenderMode.ManagerRenderMode,
+            Renderer = new LightMenuRenderer(),
         };
 
         var itemNew = new ToolStripMenuItem("新建查询");
@@ -1735,11 +1978,92 @@ public partial class MainForm : Form
         };
         menu.Items.Add(itemCloseOthers);
 
+        var itemCloseLeft = new ToolStripMenuItem("关闭左侧所有");
+        itemCloseLeft.Enabled = index > 0;
+        itemCloseLeft.Click += (_, _) =>
+        {
+            if (_contextMenuQueryTabIndex >= 0)
+            {
+                CloseLeftQueryTabs(_contextMenuQueryTabIndex);
+            }
+        };
+        menu.Items.Add(itemCloseLeft);
+
+        var itemCloseRight = new ToolStripMenuItem("关闭右侧所有");
+        itemCloseRight.Enabled = index < queryTabs.TabPages.Count - 1;
+        itemCloseRight.Click += (_, _) =>
+        {
+            if (_contextMenuQueryTabIndex >= 0)
+            {
+                CloseRightQueryTabs(_contextMenuQueryTabIndex);
+            }
+        };
+        menu.Items.Add(itemCloseRight);
+
         var itemCloseAll = new ToolStripMenuItem("关闭所有");
         itemCloseAll.Click += (_, _) => CloseAllQueryTabs();
         menu.Items.Add(itemCloseAll);
 
+        foreach (ToolStripItem item in menu.Items)
+        {
+            item.BackColor = Color.White;
+            item.ForeColor = Color.FromArgb(26, 35, 50);
+            item.Margin = new Padding(8, 4, 8, 4);
+        }
+
         menu.Closed += (_, _) => { _hoveredCloseIndex = -1; queryTabs.Invalidate(); };
         menu.Show(queryTabs, location);
     }
+}
+
+internal sealed class LightMenuRenderer : ToolStripProfessionalRenderer
+{
+    public LightMenuRenderer() : base(new LightMenuColorTable())
+    {
+        RoundedEdges = false;
+    }
+
+    protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+    {
+        var rc = new Rectangle(Point.Empty, e.Item.Size);
+        var g = e.Graphics;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+
+        if (e.Item.Selected || e.Item.Pressed)
+        {
+            using var brush = new SolidBrush(Color.FromArgb(168, 218, 220));
+            g.FillRectangle(brush, rc);
+        }
+        else
+        {
+            using var brush = new SolidBrush(Color.White);
+            g.FillRectangle(brush, rc);
+        }
+    }
+}
+
+internal sealed class LightMenuColorTable : ProfessionalColorTable
+{
+    public override Color MenuBorder => Color.FromArgb(203, 213, 225);
+    public override Color MenuItemBorder => Color.Transparent;
+    public override Color MenuItemSelected => Color.FromArgb(168, 218, 220);
+    public override Color MenuItemSelectedGradientBegin => Color.FromArgb(168, 218, 220);
+    public override Color MenuItemSelectedGradientEnd => Color.FromArgb(168, 218, 220);
+    public override Color MenuItemPressedGradientBegin => Color.FromArgb(168, 218, 220);
+    public override Color MenuItemPressedGradientEnd => Color.FromArgb(168, 218, 220);
+    public override Color MenuStripGradientBegin => Color.White;
+    public override Color MenuStripGradientEnd => Color.White;
+    public override Color ToolStripBorder => Color.Transparent;
+    public override Color ToolStripContentPanelGradientBegin => Color.White;
+    public override Color ToolStripContentPanelGradientEnd => Color.White;
+    public override Color ToolStripPanelGradientBegin => Color.White;
+    public override Color ToolStripPanelGradientEnd => Color.White;
+    public override Color SeparatorDark => Color.FromArgb(226, 232, 240);
+    public override Color SeparatorLight => Color.FromArgb(241, 245, 249);
+    public override Color CheckBackground => Color.FromArgb(168, 218, 220);
+    public override Color CheckPressedBackground => Color.FromArgb(168, 218, 220);
+    public override Color CheckSelectedBackground => Color.FromArgb(168, 218, 220);
+    public override Color ImageMarginGradientBegin => Color.White;
+    public override Color ImageMarginGradientMiddle => Color.White;
+    public override Color ImageMarginGradientEnd => Color.White;
 }

@@ -17,6 +17,33 @@ public sealed class SqlCompletionPopup : IDisposable
             SelectionMode = SelectionMode.One,
             Visible = false,
             Size = new Size(260, 160),
+            BackColor = Color.White,
+            ForeColor = Color.FromArgb(26, 35, 50),
+            DrawMode = DrawMode.OwnerDrawFixed,
+            ItemHeight = 26,
+        };
+        _listBox.DrawItem += (_, e) =>
+        {
+            if (e.Index < 0)
+            {
+                return;
+            }
+
+            var isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+            var bg = isSelected ? Color.FromArgb(168, 218, 220) : Color.White;
+            var fg = Color.FromArgb(26, 35, 50);
+
+            using var bgBrush = new SolidBrush(bg);
+            e.Graphics.FillRectangle(bgBrush, e.Bounds);
+
+            var textRect = new Rectangle(e.Bounds.X + 10, e.Bounds.Y, e.Bounds.Width - 10, e.Bounds.Height);
+            TextRenderer.DrawText(
+                e.Graphics,
+                _listBox.Items[e.Index]?.ToString() ?? string.Empty,
+                e.Font,
+                textRect,
+                fg,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         };
         _listBox.Click += (_, _) => ConfirmSelection();
 

@@ -19,10 +19,10 @@ public class SqlEditorTextBox : RichTextBox
         "ASC", "DESC"
     };
 
-    private static readonly Color KeywordColor = Color.FromArgb(59, 130, 246);
-    private static readonly Color StringColor = Color.FromArgb(22, 163, 74);
-    private static readonly Color CommentColor = Color.FromArgb(100, 116, 139);
-    private static readonly Color NumberColor = Color.FromArgb(217, 119, 6);
+    private static readonly Color KeywordColor = Color.FromArgb(45, 139, 139);      // Teal - 关键字
+    private static readonly Color StringColor = Color.FromArgb(56, 142, 60);        // 绿 - 字符串
+    private static readonly Color CommentColor = Color.FromArgb(120, 134, 150);     // 灰蓝 - 注释
+    private static readonly Color NumberColor = Color.FromArgb(198, 90, 16);        // 琥珀棕 - 数字
 
     private bool _suppressHighlight;
     private SqlCompletionPopup? _completionPopup;
@@ -278,7 +278,7 @@ public class SqlEditorTextBox : RichTextBox
     {
         BorderStyle = BorderStyle.FixedSingle;
         BackColor = Color.White;
-        ForeColor = Color.FromArgb(71, 85, 105);
+        ForeColor = Color.FromArgb(26, 35, 50);
         Font = new Font("Consolas", 10F, FontStyle.Regular, GraphicsUnit.Point);
     }
 
