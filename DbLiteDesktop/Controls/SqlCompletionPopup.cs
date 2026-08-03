@@ -18,7 +18,7 @@ public sealed class SqlCompletionPopup : IDisposable
             Visible = false,
             Size = new Size(260, 160),
             BackColor = Color.White,
-            ForeColor = Color.FromArgb(26, 35, 50),
+            ForeColor = Color.FromArgb(15, 23, 42),
             DrawMode = DrawMode.OwnerDrawFixed,
             ItemHeight = 26,
         };
@@ -30,8 +30,8 @@ public sealed class SqlCompletionPopup : IDisposable
             }
 
             var isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            var bg = isSelected ? Color.FromArgb(168, 218, 220) : Color.White;
-            var fg = Color.FromArgb(26, 35, 50);
+            var bg = isSelected ? Color.FromArgb(204, 251, 241) : Color.White;
+            var fg = Color.FromArgb(15, 23, 42);
 
             using var bgBrush = new SolidBrush(bg);
             e.Graphics.FillRectangle(bgBrush, e.Bounds);

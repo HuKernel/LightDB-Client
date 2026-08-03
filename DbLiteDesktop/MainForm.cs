@@ -18,6 +18,7 @@ public partial class MainForm : Form
     // SqlGuardService 改为静态类，无需实例化
     private readonly DataExportService _dataExportService = new();
     private readonly ContextMenuStrip _previewCopyMenu = new();
+    private readonly ContextMenuStrip _tableCopyMenu = new();
     private QueryHistoryService _queryHistoryService = null!;
     private DbConnectionConfig? _currentConfig;
     private IDatabaseProvider? _currentProvider;
@@ -55,6 +56,7 @@ public partial class MainForm : Form
         _queryHistoryService.Initialize();
         InitializePreviewSearch();
         InitializePreviewCopyMenu();
+        InitializeTableCopyMenu();
         LoadConnections();
         LoadHistory();
     }
@@ -73,7 +75,7 @@ public partial class MainForm : Form
     private void InitializePreviewCopyMenu()
     {
         _previewCopyMenu.BackColor = Color.White;
-        _previewCopyMenu.ForeColor = Color.FromArgb(26, 35, 50);
+        _previewCopyMenu.ForeColor = Color.FromArgb(15, 23, 42);
         _previewCopyMenu.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
         _previewCopyMenu.ShowImageMargin = false;
         _previewCopyMenu.RenderMode = ToolStripRenderMode.ManagerRenderMode;
@@ -81,7 +83,7 @@ public partial class MainForm : Form
 
         var copyItem = new ToolStripMenuItem("复制");
         copyItem.BackColor = Color.White;
-        copyItem.ForeColor = Color.FromArgb(26, 35, 50);
+        copyItem.ForeColor = Color.FromArgb(15, 23, 42);
         copyItem.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
         copyItem.Margin = new Padding(8, 6, 8, 6);
         copyItem.Click += (_, _) =>
@@ -95,6 +97,50 @@ public partial class MainForm : Form
         _previewCopyMenu.Items.Clear();
         _previewCopyMenu.Items.Add(copyItem);
         gridPreview.MouseDown += gridPreview_MouseDown;
+    }
+
+    private void InitializeTableCopyMenu()
+    {
+        _tableCopyMenu.BackColor = Color.White;
+        _tableCopyMenu.ForeColor = Color.FromArgb(15, 23, 42);
+        _tableCopyMenu.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
+        _tableCopyMenu.ShowImageMargin = false;
+        _tableCopyMenu.RenderMode = ToolStripRenderMode.ManagerRenderMode;
+        _tableCopyMenu.Renderer = new LightMenuRenderer();
+
+        var copyNameItem = new ToolStripMenuItem("复制表名");
+        copyNameItem.BackColor = Color.White;
+        copyNameItem.ForeColor = Color.FromArgb(15, 23, 42);
+        copyNameItem.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
+        copyNameItem.Margin = new Padding(8, 6, 8, 6);
+        copyNameItem.Click += (_, _) =>
+        {
+            var node = treeTables.SelectedNode;
+            if (node is not null && !string.IsNullOrEmpty(node.Text))
+            {
+                Clipboard.SetText(node.Text);
+            }
+        };
+
+        _tableCopyMenu.Items.Clear();
+        _tableCopyMenu.Items.Add(copyNameItem);
+
+        treeTables.MouseDown += treeTables_MouseDown;
+    }
+
+    private void treeTables_MouseDown(object? sender, MouseEventArgs e)
+    {
+        if (e.Button != MouseButtons.Right)
+        {
+            return;
+        }
+        var hit = treeTables.GetNodeAt(e.Location);
+        if (hit is null || string.IsNullOrEmpty(hit.Text))
+        {
+            return;
+        }
+        treeTables.SelectedNode = hit;
+        _tableCopyMenu.Show(treeTables, e.Location);
     }
 
     private void LoadConnections()
@@ -548,18 +594,21 @@ public partial class MainForm : Form
 
         _themeApplied = true;
 
-        // Ocean Depths 浅色版配色
-        var pageBackColor = Color.FromArgb(243, 246, 250);     // #f3f6fa 整窗背景(极淡蓝灰)
+        // 方案 C — TablePlus 开发者风(Teal + Run Green + Link Sky)
+        var pageBackColor = Color.FromArgb(248, 250, 252);     // #f8fafc Slate-50
         var cardBackColor = Color.White;                       // 卡片纯白
-        var chromeBackColor = Color.FromArgb(244, 250, 248);   // Cream tint 工具栏
-        var inputBackColor = Color.FromArgb(248, 250, 252);    // 输入框背景
-        var accentColor = Color.FromArgb(45, 139, 139);        // #2d8b8b Teal accent
-        var accentHoverColor = Color.FromArgb(37, 112, 112);   // hover
-        var accentLight = Color.FromArgb(168, 218, 220);       // #a8dadc Seafoam
-        var borderColor = Color.FromArgb(203, 213, 225);       // #cbd5e1 描边
-        var textColor = Color.FromArgb(26, 35, 50);            // #1a2332 Deep Navy 主文字
-        var subtleTextColor = Color.FromArgb(90, 110, 130);    // 次级灰蓝
-        var rowAltColor = Color.FromArgb(244, 250, 248);       // 交替行 Cream tint
+        var chromeBackColor = Color.FromArgb(241, 245, 249);   // #f1f5f9 Slate-100
+        var inputBackColor = Color.FromArgb(248, 250, 252);    // #f8fafc
+        var accentColor = Color.FromArgb(15, 118, 110);        // #0f766e Teal-700 主色
+        var accentHoverColor = Color.FromArgb(17, 94, 89);     // #115e59 Teal-800 hover
+        var accentLight = Color.FromArgb(204, 251, 241);       // #ccfbf1 Teal-100 选中
+        var runColor = Color.FromArgb(22, 163, 74);            // #16a34a Green-600 执行
+        var runHoverColor = Color.FromArgb(21, 128, 61);       // #15803d Green-700
+        var linkColor = Color.FromArgb(2, 132, 199);           // #0284c7 Sky-600 链接/计数
+        var borderColor = Color.FromArgb(226, 232, 240);       // #e2e8f0 Slate-200
+        var textColor = Color.FromArgb(15, 23, 42);            // #0f172a Slate-900 主文字
+        var subtleTextColor = Color.FromArgb(100, 116, 139);   // #64748b Slate-500 次级
+        var rowAltColor = Color.FromArgb(248, 250, 252);       // #f8fafc 交替行
 
         BackColor = pageBackColor;
         Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
@@ -633,7 +682,7 @@ public partial class MainForm : Form
             var rowRect = new Rectangle(0, bounds.Top, treeTables.Width, bounds.Height);
             if (isSelected) {
                 // 选中:不透明 Seafoam 背景 + Teal 左侧指示条
-                using var selBrush = new SolidBrush(Color.FromArgb(168, 218, 220));
+                using var selBrush = new SolidBrush(Color.FromArgb(204, 251, 241));
                 e.Graphics.FillRectangle(selBrush, rowRect);
                 using var accentPen = new Pen(accentColor, 3);
                 e.Graphics.DrawLine(accentPen, 0, bounds.Top, 0, bounds.Bottom - 1);
@@ -692,7 +741,7 @@ public partial class MainForm : Form
         lblPreviewTip.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
         lblPreviewTip.Text = "💡 支持 字段名=数据 快捷搜索";
         lblRowCount.BackColor = chromeBackColor;
-        lblRowCount.ForeColor = accentColor;
+        lblRowCount.ForeColor = linkColor;
         lblRowCount.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold, GraphicsUnit.Point);
 
         previewSearchPanel.BackColor = chromeBackColor;
@@ -738,11 +787,11 @@ public partial class MainForm : Form
 
         // Ocean Depths 浅色版 - 表格
         var gridBackColor = Color.White;                              // 卡片背景
-        var gridHeaderBackColor = Color.FromArgb(244, 250, 248);      // Cream tint 表头
+        var gridHeaderBackColor = Color.FromArgb(241, 245, 249);      // Cream tint 表头
         var gridRowAltColor = Color.FromArgb(248, 250, 252);          // 极淡交替行
-        var gridSelectionColor = Color.FromArgb(168, 218, 220);    // Seafoam 不透明选中
-        var gridTextColor = Color.FromArgb(26, 35, 50);               // 主文字 Deep Navy
-        var gridSubtleColor = Color.FromArgb(90, 110, 130);           // 表头次级灰蓝
+        var gridSelectionColor = Color.FromArgb(236, 253, 245);    // #ecfdf5 Green-50 选中行
+        var gridTextColor = Color.FromArgb(15, 23, 42);               // 主文字 Deep Navy
+        var gridSubtleColor = Color.FromArgb(100, 116, 139);           // 表头次级灰蓝
         var gridLineColor = Color.FromArgb(226, 232, 240);            // 极淡分隔线
 
         grid.BackgroundColor = gridBackColor;
@@ -758,11 +807,11 @@ public partial class MainForm : Form
 
         grid.GridColor = gridLineColor;
         grid.ColumnHeadersDefaultCellStyle.BackColor = gridHeaderBackColor;
-        grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(26, 35, 50);
+        grid.ColumnHeadersDefaultCellStyle.ForeColor = Color.FromArgb(15, 23, 42);
         grid.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 9.5F, FontStyle.Bold, GraphicsUnit.Point);
         grid.ColumnHeadersDefaultCellStyle.Padding = new Padding(12, 14, 12, 14);
         grid.ColumnHeadersDefaultCellStyle.SelectionBackColor = gridHeaderBackColor;
-        grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = Color.FromArgb(26, 35, 50);
+        grid.ColumnHeadersDefaultCellStyle.SelectionForeColor = Color.FromArgb(15, 23, 42);
         grid.ColumnHeadersHeight = 48;
         grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing;
         grid.DefaultCellStyle.SelectionBackColor = gridSelectionColor;
@@ -806,7 +855,7 @@ public partial class MainForm : Form
 
     private static void StyleActionButton(Button button, Color? accentColor = null)
     {
-        var baseColor = accentColor ?? Color.FromArgb(45, 139, 139);
+        var baseColor = accentColor ?? Color.FromArgb(15, 118, 110);
         var hoverColor = ControlPaint.Light(baseColor, 0.12F);
         var pressedColor = ControlPaint.Dark(baseColor, 0.08F);
 
@@ -854,11 +903,11 @@ public partial class MainForm : Form
     private static void StyleGhostButton(Button button)
     {
         var backColor = Color.White;
-        var hoverColor = Color.FromArgb(244, 250, 248);
-        var borderColor = Color.FromArgb(203, 213, 225);
-        var hoverBorder = Color.FromArgb(45, 139, 139);
-        var textColor = Color.FromArgb(26, 35, 50);
-        var hoverText = Color.FromArgb(45, 139, 139);
+        var hoverColor = Color.FromArgb(241, 245, 249);
+        var borderColor = Color.FromArgb(226, 232, 240);
+        var hoverBorder = Color.FromArgb(15, 118, 110);
+        var textColor = Color.FromArgb(15, 23, 42);
+        var hoverText = Color.FromArgb(15, 118, 110);
 
         button.FlatStyle = FlatStyle.Flat;
         button.FlatAppearance.BorderSize = 0;
@@ -898,14 +947,14 @@ public partial class MainForm : Form
 
     private static void StyleHeaderButton(Button button, bool emphasize, Color? accentColor = null)
     {
-        var baseColor = accentColor ?? Color.FromArgb(45, 139, 139);
+        var baseColor = accentColor ?? Color.FromArgb(15, 118, 110);
         var hoverColor = ControlPaint.Light(baseColor, 0.12F);
 
         var backColor = Color.White;
-        var hoverBackColor = Color.FromArgb(244, 250, 248);
-        var borderColor = Color.FromArgb(203, 213, 225);
-        var textColor = Color.FromArgb(26, 35, 50);
-        var subtleText = Color.FromArgb(90, 110, 130);
+        var hoverBackColor = Color.FromArgb(241, 245, 249);
+        var borderColor = Color.FromArgb(226, 232, 240);
+        var textColor = Color.FromArgb(15, 23, 42);
+        var subtleText = Color.FromArgb(100, 116, 139);
 
         button.FlatStyle = FlatStyle.Flat;
         button.FlatAppearance.BorderSize = 0;
@@ -984,7 +1033,7 @@ public partial class MainForm : Form
     {
         comboBox.FlatStyle = FlatStyle.Flat;
         comboBox.BackColor = Color.White;
-        comboBox.ForeColor = Color.FromArgb(26, 35, 50);
+        comboBox.ForeColor = Color.FromArgb(15, 23, 42);
         comboBox.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
         comboBox.IntegralHeight = false;
         comboBox.DrawMode = DrawMode.OwnerDrawFixed;
@@ -998,8 +1047,8 @@ public partial class MainForm : Form
 
             var cb = (ComboBox)sender!;
             var isSelected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
-            var bg = isSelected ? Color.FromArgb(168, 218, 220) : Color.White;
-            var fg = Color.FromArgb(26, 35, 50);
+            var bg = isSelected ? Color.FromArgb(204, 251, 241) : Color.White;
+            var fg = Color.FromArgb(15, 23, 42);
 
             using var bgBrush = new SolidBrush(bg);
             e.Graphics.FillRectangle(bgBrush, e.Bounds);
@@ -1019,7 +1068,7 @@ public partial class MainForm : Form
     {
         textBox.BorderStyle = BorderStyle.FixedSingle;
         textBox.BackColor = Color.FromArgb(248, 250, 252);
-        textBox.ForeColor = Color.FromArgb(26, 35, 50);
+        textBox.ForeColor = Color.FromArgb(15, 23, 42);
         textBox.Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
     }
 
@@ -1117,10 +1166,10 @@ public partial class MainForm : Form
         var backgroundColor = selected
             ? Color.White
             : hot
-                ? Color.FromArgb(244, 250, 248)
+                ? Color.FromArgb(241, 245, 249)
                 : Color.FromArgb(241, 245, 249);
-        var textColor = selected ? Color.FromArgb(45, 139, 139) : Color.FromArgb(90, 110, 130);
-        var accentColor = Color.FromArgb(45, 139, 139);
+        var textColor = selected ? Color.FromArgb(15, 118, 110) : Color.FromArgb(100, 116, 139);
+        var accentColor = Color.FromArgb(15, 118, 110);
 
         using var background = new SolidBrush(backgroundColor);
         e.Graphics.FillRectangle(background, bounds);
@@ -1138,7 +1187,7 @@ public partial class MainForm : Form
             tabPage.Text,
             selectedFont ?? tabMain.Font,
             bounds,
-            hot && !selected ? Color.FromArgb(26, 35, 50) : textColor,
+            hot && !selected ? Color.FromArgb(15, 23, 42) : textColor,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter
         );
     }
@@ -1503,7 +1552,7 @@ public partial class MainForm : Form
                 }
 
                 lblRowCount.Text = $"共 {count:N0} 行";
-                lblRowCount.ForeColor = Color.FromArgb(15, 23, 42);
+                lblRowCount.ForeColor = Color.FromArgb(2, 132, 199);  // Sky-600 link color
                 toolTip.SetToolTip(lblRowCount, string.Empty);
             });
         }, token);
@@ -1566,14 +1615,15 @@ public partial class MainForm : Form
             return;
         }
 
-        var chromeBackColor = Color.FromArgb(244, 250, 248);
-        var borderColor = Color.FromArgb(203, 213, 225);
-        var accentColor = Color.FromArgb(45, 139, 139);
+        var chromeBackColor = Color.FromArgb(241, 245, 249);
+        var borderColor = Color.FromArgb(226, 232, 240);
+        var accentColor = Color.FromArgb(15, 118, 110);
+        var runColor = Color.FromArgb(22, 163, 74);  // Green-600 执行按钮
 
         page.TxtSql.ApplyTheme();
         page.TxtSql.PlaceholderText = "请输入只读 SQL，例如：SELECT * FROM your_table LIMIT 100";
         StyleGrid(page.GridResults);
-        StyleActionButton(page.BtnRunSql, accentColor);
+        StyleActionButton(page.BtnRunSql, runColor);  // 执行用绿色,跟 Teal 主按钮形成分工
         StyleGhostButton(page.BtnFormatSql);
         StyleGhostButton(page.BtnClearSql);
         StyleGhostButton(page.BtnCopySql);
@@ -1582,7 +1632,7 @@ public partial class MainForm : Form
 
         page.BackColor = Color.White;
         page.LblStatus.BackColor = chromeBackColor;
-        page.LblStatus.ForeColor = Color.FromArgb(90, 110, 130);
+        page.LblStatus.ForeColor = Color.FromArgb(100, 116, 139);
         page.LblStatus.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
         page.LblStatus.Padding = new Padding(16, 0, 0, 0);
         page.LblStatus.BorderStyle = BorderStyle.None;
@@ -1711,11 +1761,11 @@ public partial class MainForm : Form
         if (selected)
         {
             var accentBounds = new Rectangle(bounds.Left, bounds.Bottom - 3, bounds.Width, 3);
-            using var accentBrush = new SolidBrush(Color.FromArgb(45, 139, 139));
+            using var accentBrush = new SolidBrush(Color.FromArgb(15, 118, 110));
             e.Graphics.FillRectangle(accentBrush, accentBounds);
         }
 
-        var textColor = selected ? Color.FromArgb(26, 35, 50) : Color.FromArgb(90, 110, 130);
+        var textColor = selected ? Color.FromArgb(15, 23, 42) : Color.FromArgb(100, 116, 139);
         using var font = new Font("Segoe UI", 9F, selected ? FontStyle.Bold : FontStyle.Regular, GraphicsUnit.Point);
         var textRect = new Rectangle(bounds.X + 12, bounds.Y, bounds.Width - TabCloseButtonSize - TabCloseButtonRightMargin - 12, bounds.Height);
         TextRenderer.DrawText(e.Graphics, tabPage.Text, font, textRect, textColor, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
@@ -1943,7 +1993,7 @@ public partial class MainForm : Form
         var menu = new ContextMenuStrip
         {
             BackColor = Color.White,
-            ForeColor = Color.FromArgb(26, 35, 50),
+            ForeColor = Color.FromArgb(15, 23, 42),
             Font = new Font("Segoe UI", 9F, GraphicsUnit.Point),
             ShowImageMargin = false,
             RenderMode = ToolStripRenderMode.ManagerRenderMode,
@@ -2007,7 +2057,7 @@ public partial class MainForm : Form
         foreach (ToolStripItem item in menu.Items)
         {
             item.BackColor = Color.White;
-            item.ForeColor = Color.FromArgb(26, 35, 50);
+            item.ForeColor = Color.FromArgb(15, 23, 42);
             item.Margin = new Padding(8, 4, 8, 4);
         }
 
@@ -2031,7 +2081,7 @@ internal sealed class LightMenuRenderer : ToolStripProfessionalRenderer
 
         if (e.Item.Selected || e.Item.Pressed)
         {
-            using var brush = new SolidBrush(Color.FromArgb(168, 218, 220));
+            using var brush = new SolidBrush(Color.FromArgb(204, 251, 241));
             g.FillRectangle(brush, rc);
         }
         else
@@ -2044,13 +2094,13 @@ internal sealed class LightMenuRenderer : ToolStripProfessionalRenderer
 
 internal sealed class LightMenuColorTable : ProfessionalColorTable
 {
-    public override Color MenuBorder => Color.FromArgb(203, 213, 225);
+    public override Color MenuBorder => Color.FromArgb(226, 232, 240);
     public override Color MenuItemBorder => Color.Transparent;
-    public override Color MenuItemSelected => Color.FromArgb(168, 218, 220);
-    public override Color MenuItemSelectedGradientBegin => Color.FromArgb(168, 218, 220);
-    public override Color MenuItemSelectedGradientEnd => Color.FromArgb(168, 218, 220);
-    public override Color MenuItemPressedGradientBegin => Color.FromArgb(168, 218, 220);
-    public override Color MenuItemPressedGradientEnd => Color.FromArgb(168, 218, 220);
+    public override Color MenuItemSelected => Color.FromArgb(204, 251, 241);
+    public override Color MenuItemSelectedGradientBegin => Color.FromArgb(204, 251, 241);
+    public override Color MenuItemSelectedGradientEnd => Color.FromArgb(204, 251, 241);
+    public override Color MenuItemPressedGradientBegin => Color.FromArgb(204, 251, 241);
+    public override Color MenuItemPressedGradientEnd => Color.FromArgb(204, 251, 241);
     public override Color MenuStripGradientBegin => Color.White;
     public override Color MenuStripGradientEnd => Color.White;
     public override Color ToolStripBorder => Color.Transparent;
@@ -2060,9 +2110,9 @@ internal sealed class LightMenuColorTable : ProfessionalColorTable
     public override Color ToolStripPanelGradientEnd => Color.White;
     public override Color SeparatorDark => Color.FromArgb(226, 232, 240);
     public override Color SeparatorLight => Color.FromArgb(241, 245, 249);
-    public override Color CheckBackground => Color.FromArgb(168, 218, 220);
-    public override Color CheckPressedBackground => Color.FromArgb(168, 218, 220);
-    public override Color CheckSelectedBackground => Color.FromArgb(168, 218, 220);
+    public override Color CheckBackground => Color.FromArgb(204, 251, 241);
+    public override Color CheckPressedBackground => Color.FromArgb(204, 251, 241);
+    public override Color CheckSelectedBackground => Color.FromArgb(204, 251, 241);
     public override Color ImageMarginGradientBegin => Color.White;
     public override Color ImageMarginGradientMiddle => Color.White;
     public override Color ImageMarginGradientEnd => Color.White;

@@ -19,7 +19,7 @@ public class SqlEditorTextBox : RichTextBox
         "ASC", "DESC"
     };
 
-    private static readonly Color KeywordColor = Color.FromArgb(45, 139, 139);      // Teal - 关键字
+    private static readonly Color KeywordColor = Color.FromArgb(15, 118, 110);      // Teal-700 - 关键字
     private static readonly Color StringColor = Color.FromArgb(56, 142, 60);        // 绿 - 字符串
     private static readonly Color CommentColor = Color.FromArgb(120, 134, 150);     // 灰蓝 - 注释
     private static readonly Color NumberColor = Color.FromArgb(198, 90, 16);        // 琥珀棕 - 数字
@@ -278,7 +278,7 @@ public class SqlEditorTextBox : RichTextBox
     {
         BorderStyle = BorderStyle.FixedSingle;
         BackColor = Color.White;
-        ForeColor = Color.FromArgb(26, 35, 50);
+        ForeColor = Color.FromArgb(15, 23, 42);
         Font = new Font("Consolas", 10F, FontStyle.Regular, GraphicsUnit.Point);
     }
 
