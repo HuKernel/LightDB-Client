@@ -184,13 +184,13 @@ public partial class ConnectionForm : Form
 
     private void ApplyTheme()
     {
-        var accentColor = Color.FromArgb(59, 130, 246);
-        var accentHoverColor = Color.FromArgb(37, 99, 235);
+        var accentColor = Color.FromArgb(15, 118, 110);
+        var accentHoverColor = Color.FromArgb(17, 94, 89);
         var borderColor = Color.FromArgb(226, 232, 240);
         var textColor = Color.FromArgb(15, 23, 42);
-        var subtleTextColor = Color.FromArgb(71, 85, 105);
+        var subtleTextColor = Color.FromArgb(100, 116, 139);
 
-        BackColor = Color.FromArgb(245, 247, 250);
+        BackColor = Color.FromArgb(248, 250, 252);
         Font = new Font("Segoe UI", 9F, FontStyle.Regular, GraphicsUnit.Point);
 
         foreach (var button in new[] { btnTest, btnSave, btnConnect })
@@ -237,7 +237,7 @@ public partial class ConnectionForm : Form
         }
 
         numPort.BackColor = Color.White;
-        numPort.ForeColor = subtleTextColor;
+        numPort.ForeColor = textColor;
     }
 
     private void cboDbType_SelectedIndexChanged(object? sender, EventArgs e)

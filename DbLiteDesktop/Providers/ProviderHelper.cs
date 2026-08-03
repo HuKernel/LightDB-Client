@@ -1,4 +1,5 @@
 using System.Data;
+using System.Data.Common;
 
 namespace DbLiteDesktop.Providers;
 
@@ -13,6 +14,19 @@ public static class ProviderHelper
         {
             table.Rows.RemoveAt(table.Rows.Count - 1);
         }
+    }
+
+    public static List<DataTable> LoadAllTables(DbDataReader reader, int maxRows)
+    {
+        var results = new List<DataTable>();
+        do
+        {
+            var table = new DataTable();
+            table.Load(reader);
+            TrimRows(table, maxRows);
+            results.Add(table);
+        } while (!reader.IsClosed && reader.NextResult());
+        return results;
     }
 
     public static string BuildPreviewSql(

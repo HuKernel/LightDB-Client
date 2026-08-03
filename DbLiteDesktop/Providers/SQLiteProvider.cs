@@ -9,6 +9,12 @@ namespace DbLiteDesktop.Providers;
 public class SQLiteProvider : IDatabaseProvider
 {
     private static readonly Func<string, string> Quote = IdentifierQuoteHelper.QuoteSQLite;
+    private SqliteCommand? _currentCommand;
+
+    public void CancelQuery()
+    {
+        try { _currentCommand?.Cancel(); } catch { /* ignored */ }
+    }
 
     public bool TestConnection(DbConnectionConfig config, string password)
     {
@@ -90,6 +96,31 @@ public class SQLiteProvider : IDatabaseProvider
         table.Load(reader);
         ProviderHelper.TrimRows(table, maxRows);
         return table;
+    }
+
+    public List<DataTable> ExecuteQueryMultiple(DbConnectionConfig config, string password, string sql, int maxRows = 1000)
+    {
+        if (!SqlGuardService.IsReadonlySql(sql))
+        {
+            throw new InvalidOperationException("当前工具只允许执行只读 SQL");
+        }
+
+        using var connection = CreateConnection(config);
+        connection.Open();
+
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandTimeout = config.CommandTimeoutSec ?? 30;
+        _currentCommand = command;
+        try
+        {
+            using var reader = command.ExecuteReader();
+            return ProviderHelper.LoadAllTables(reader, maxRows);
+        }
+        finally
+        {
+            _currentCommand = null;
+        }
     }
 
     public string BuildPreviewSql(string tableName, int limit = 100) =>

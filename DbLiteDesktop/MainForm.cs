@@ -29,6 +29,7 @@ public partial class MainForm : Form
     private string _previewCopyText = string.Empty;
     private bool _isLoading;
     private CancellationTokenSource? _rowCountCts;
+    private DbLiteDesktop.Controls.QueryTabPage? _currentRunningPage;
     private int _queryTabCounter;
     private int _hoveredCloseIndex = -1;
     private int _contextMenuQueryTabIndex = -1;
@@ -108,24 +109,40 @@ public partial class MainForm : Form
         _tableCopyMenu.RenderMode = ToolStripRenderMode.ManagerRenderMode;
         _tableCopyMenu.Renderer = new LightMenuRenderer();
 
-        var copyNameItem = new ToolStripMenuItem("复制表名");
-        copyNameItem.BackColor = Color.White;
-        copyNameItem.ForeColor = Color.FromArgb(15, 23, 42);
-        copyNameItem.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
-        copyNameItem.Margin = new Padding(8, 6, 8, 6);
-        copyNameItem.Click += (_, _) =>
+        var copyTableNameItem = new ToolStripMenuItem("复制表名");
+        copyTableNameItem.BackColor = Color.White;
+        copyTableNameItem.ForeColor = Color.FromArgb(15, 23, 42);
+        copyTableNameItem.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
+        copyTableNameItem.Margin = new Padding(8, 6, 8, 6);
+        copyTableNameItem.Click += (_, _) =>
         {
             var node = treeTables.SelectedNode;
-            if (node is not null && !string.IsNullOrEmpty(node.Text))
+            if (node is { Tag: "table" } && !string.IsNullOrEmpty(node.Name))
             {
-                Clipboard.SetText(node.Text);
+                Clipboard.SetText(node.Name);
+            }
+        };
+
+        var copyColumnNameItem = new ToolStripMenuItem("复制列名");
+        copyColumnNameItem.BackColor = Color.White;
+        copyColumnNameItem.ForeColor = Color.FromArgb(15, 23, 42);
+        copyColumnNameItem.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
+        copyColumnNameItem.Margin = new Padding(8, 6, 8, 6);
+        copyColumnNameItem.Click += (_, _) =>
+        {
+            var node = treeTables.SelectedNode;
+            if (node is { Tag: "column" } && node.Name is { Length: > 0 } colName)
+            {
+                Clipboard.SetText(colName);
             }
         };
 
         _tableCopyMenu.Items.Clear();
-        _tableCopyMenu.Items.Add(copyNameItem);
+        _tableCopyMenu.Items.Add(copyTableNameItem);
+        _tableCopyMenu.Items.Add(copyColumnNameItem);
 
         treeTables.MouseDown += treeTables_MouseDown;
+        treeTables.BeforeExpand += treeTables_BeforeExpand;
     }
 
     private void treeTables_MouseDown(object? sender, MouseEventArgs e)
@@ -135,12 +152,80 @@ public partial class MainForm : Form
             return;
         }
         var hit = treeTables.GetNodeAt(e.Location);
-        if (hit is null || string.IsNullOrEmpty(hit.Text))
+        if (hit is null)
         {
             return;
         }
         treeTables.SelectedNode = hit;
+
+        var isColumn = hit.Tag is "column";
+        _tableCopyMenu.Items[0].Available = !isColumn;
+        _tableCopyMenu.Items[1].Available = isColumn;
+
         _tableCopyMenu.Show(treeTables, e.Location);
+    }
+
+    private void treeTables_BeforeExpand(object? sender, TreeViewCancelEventArgs e)
+    {
+        if (e.Node is not { Tag: "table" } || string.IsNullOrEmpty(e.Node.Name))
+        {
+            return;
+        }
+
+        // 已加载过列则跳过
+        if (e.Node.Nodes.Count > 0 && e.Node.Nodes[0].Tag is "column")
+        {
+            return;
+        }
+
+        if (_currentConfig is null || _currentProvider is null)
+        {
+            return;
+        }
+
+        var tableName = e.Node.Name;
+        var config = _currentConfig;
+        var provider = _currentProvider;
+        var password = GetPassword(config);
+
+        // 临时保留占位节点,后台加载完毕替换
+        Task.Run(() =>
+        {
+            try
+            {
+                var columns = provider.GetColumns(config, password, tableName);
+                Invoke(() =>
+                {
+                    if (treeTables.Nodes.Find(tableName, true).Length == 0)
+                    {
+                        return;
+                    }
+                    e.Node.Nodes.Clear();
+                    foreach (var col in columns)
+                    {
+                        var display = string.IsNullOrEmpty(col.Type)
+                            ? col.Name
+                            : $"{col.Name}  ({col.Type})";
+                        var colNode = new TreeNode(display)
+                        {
+                            Name = col.Name,
+                            Tag = "column",
+                            ForeColor = Color.FromArgb(100, 116, 139),
+                            NodeFont = new Font("Segoe UI", 8.25F, GraphicsUnit.Point)
+                        };
+                        e.Node.Nodes.Add(colNode);
+                    }
+                });
+            }
+            catch
+            {
+                Invoke(() =>
+                {
+                    e.Node.Nodes.Clear();
+                    e.Node.Nodes.Add(new TreeNode("(加载失败)") { Tag = "placeholder", ForeColor = Color.FromArgb(196, 90, 80) });
+                });
+            }
+        });
     }
 
     private void LoadConnections()
@@ -242,7 +327,9 @@ public partial class MainForm : Form
             _currentConfig = config;
             _currentProvider = provider;
             LoadTables();
-            lblStatus.Text = $"已连接：{config.Name}";
+            var displayDb = GetDisplayDatabaseName(config);
+            SetStatusLabel(lblStatus, $"已连接 · {config.Name} · {config.DbType} · {displayDb}", StatusDotOk);
+            _statusPrevDot = StatusDotOk;
         }
         catch (Exception ex)
         {
@@ -285,9 +372,56 @@ public partial class MainForm : Form
     private void SetLoading(bool loading)
     {
         _isLoading = loading;
-        lblStatus.Text = loading ? "加载中..." : lblStatus.Text;
+        if (loading)
+        {
+            _statusPrevDot = lblStatus.Tag as Color? ?? StatusDotIdle;
+            lblStatus.Text = "加载中...";
+            lblStatus.Tag = StatusDotBusy;
+        }
+        else
+        {
+            lblStatus.Tag = _statusPrevDot;
+        }
+        lblStatus.Invalidate();
         Cursor = loading ? Cursors.WaitCursor : Cursors.Default;
         UseWaitCursor = loading;
+    }
+
+    private static readonly Color StatusDotIdle = Color.FromArgb(148, 163, 184);   // Slate-400
+    private static readonly Color StatusDotOk = Color.FromArgb(15, 118, 110);       // Teal-700
+    private static readonly Color StatusDotBusy = Color.FromArgb(245, 158, 11);     // Amber-500
+    private static readonly Color StatusDotError = Color.FromArgb(220, 90, 80);     // Soft red
+    private Color _statusPrevDot = StatusDotIdle;
+
+    private static void AttachStatusLedPainter(Label label)
+    {
+        label.Padding = new Padding(22, 0, 8, 0);
+        label.Tag = StatusDotIdle;
+        label.Paint += DrawStatusLed;
+    }
+
+    private static void DrawStatusLed(object? sender, PaintEventArgs e)
+    {
+        if (sender is not Label lbl)
+        {
+            return;
+        }
+        var color = lbl.Tag is Color c ? c : StatusDotIdle;
+        var y = lbl.ClientSize.Height / 2 - 4;
+        if (y < 0)
+        {
+            return;
+        }
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var brush = new SolidBrush(color);
+        e.Graphics.FillEllipse(brush, 12, y, 8, 8);
+    }
+
+    private static void SetStatusLabel(Label label, string text, Color dotColor)
+    {
+        label.Text = text;
+        label.Tag = dotColor;
+        label.Invalidate();
     }
 
     private void LoadColumnsForTable(string tableName)
@@ -455,6 +589,11 @@ public partial class MainForm : Form
             return;
         }
 
+        if (page.IsRunning)
+        {
+            return;
+        }
+
         var sql = preferSelection
             ? page.GetEffectiveSql()
             : page.TxtSql.Text.Trim();
@@ -471,6 +610,8 @@ public partial class MainForm : Form
         }
 
         SetLoading(true);
+        page.IsRunning = true;
+        _currentRunningPage = page;
         var startedAt = DateTime.UtcNow;
         var config = _currentConfig;
         var provider = _currentProvider;
@@ -480,24 +621,22 @@ public partial class MainForm : Form
         {
             try
             {
-                var result = provider.ExecuteQuery(config, password, sql, 1000);
+                var results = provider.ExecuteQueryMultiple(config, password, sql, 1000);
                 var duration = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds;
 
                 Invoke(() =>
                 {
-                    page.GridResults.SuspendLayout();
-                    try
-                    {
-                        page.GridResults.DataSource = null;
-                        page.GridResults.DataSource = result;
-                        page.GridResults.AutoResizeColumns(DataGridViewAutoSizeColumnsMode.AllCells);
-                    }
-                    finally
-                    {
-                        page.GridResults.ResumeLayout();
-                    }
+                    page.Results.SetResults(results);
+                    page.Results.AutoResizeAll();
 
-                    page.LblStatus.Text = $"查询成功，返回 {result.Rows.Count} 行，耗时 {duration} ms";
+                    var totalRows = results.Sum(t => t.Rows.Count);
+                    var resultSummary = results.Count > 1
+                        ? $"返回 {results.Count} 个结果集 · 共 {totalRows} 行 · 耗时 {duration} ms"
+                        : $"查询成功 · 返回 {totalRows} 行 · 耗时 {duration} ms";
+                    SetStatusLabel(page.LblStatus, resultSummary, StatusDotOk);
+                    page.LblRowCount.Text = results.Count > 1
+                        ? $"{results.Count} 个结果集 · {totalRows:N0} 行"
+                        : $"{totalRows:N0} 行 · {(results.Count > 0 ? results[0].Columns.Count : 0)} 列";
 
                     _queryHistoryService.Add(new QueryHistoryItem
                     {
@@ -507,7 +646,7 @@ public partial class MainForm : Form
                         SqlText = sql,
                         Success = true,
                         DurationMs = duration,
-                        RowCount = result.Rows.Count
+                        RowCount = totalRows
                     });
 
                     LoadHistory();
@@ -520,26 +659,67 @@ public partial class MainForm : Form
                 var duration = (long)(DateTime.UtcNow - startedAt).TotalMilliseconds;
                 Invoke(() =>
                 {
-                    page.LblStatus.Text = $"查询失败：{ex.Message}";
+                    var wasCancelled = page.IsStopping;
+                    page.IsStopping = false;
 
-                    _queryHistoryService.Add(new QueryHistoryItem
+                    if (wasCancelled)
                     {
-                        ConnectionId = config.Id,
-                        DbType = config.DbType,
-                        DatabaseName = GetDisplayDatabaseName(config),
-                        SqlText = sql,
-                        Success = false,
-                        ErrorMessage = ex.Message,
-                        DurationMs = duration,
-                        RowCount = 0
-                    });
+                        SetStatusLabel(page.LblStatus, $"查询已取消 · 耗时 {duration} ms", StatusDotIdle);
+                        page.LblRowCount.Text = string.Empty;
+                    }
+                    else
+                    {
+                        SetStatusLabel(page.LblStatus, $"查询失败 · {ex.Message}", StatusDotError);
+                        page.LblRowCount.Text = string.Empty;
 
-                    LoadHistory();
+                        _queryHistoryService.Add(new QueryHistoryItem
+                        {
+                            ConnectionId = config.Id,
+                            DbType = config.DbType,
+                            DatabaseName = GetDisplayDatabaseName(config),
+                            SqlText = sql,
+                            Success = false,
+                            ErrorMessage = ex.Message,
+                            DurationMs = duration,
+                            RowCount = 0
+                        });
+
+                        LoadHistory();
+                        MessageBox.Show(ex.Message, "查询失败");
+                    }
                     SetLoading(false);
-                    MessageBox.Show(ex.Message, "查询失败");
+                });
+            }
+            finally
+            {
+                Invoke(() =>
+                {
+                    page.IsRunning = false;
+                    if (ReferenceEquals(_currentRunningPage, page))
+                    {
+                        _currentRunningPage = null;
+                    }
                 });
             }
         });
+    }
+
+    private void CancelRunningQuery(DbLiteDesktop.Controls.QueryTabPage page)
+    {
+        if (!ReferenceEquals(_currentRunningPage, page) || _currentProvider is null)
+        {
+            return;
+        }
+        page.IsStopping = true;
+        try
+        {
+            _currentProvider.CancelQuery();
+        }
+        catch
+        {
+            // 取消失败时让查询自然完成即可
+        }
+        SetStatusLabel(page.LblStatus, "正在取消查询...", StatusDotBusy);
     }
 
     private string GetPassword(DbConnectionConfig config)
@@ -569,7 +749,8 @@ public partial class MainForm : Form
         gridColumns.DataSource = null;
         gridPreview.DataSource = null;
         lblPreviewPage.Text = "第 1 页";
-        lblStatus.Text = "未连接";
+        SetStatusLabel(lblStatus, "未连接", StatusDotIdle);
+        _statusPrevDot = StatusDotIdle;
         txtPreviewKeyword.Clear();
         cboPreviewField.Items.Clear();
         cboPreviewField.Items.Add(AllFieldsOption);
@@ -577,8 +758,9 @@ public partial class MainForm : Form
 
         foreach (var page in EnumerateQueryPages())
         {
-            page.GridResults.DataSource = null;
-            page.LblStatus.Text = "未连接";
+            page.Results.Clear();
+            SetStatusLabel(page.LblStatus, "未连接", StatusDotIdle);
+            page.LblRowCount.Text = string.Empty;
             page.TxtSql.CompletionProvider = null;
         }
     }
@@ -733,8 +915,8 @@ public partial class MainForm : Form
         lblStatus.BackColor = chromeBackColor;
         lblStatus.ForeColor = subtleTextColor;
         lblStatus.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
-        lblStatus.Padding = new Padding(16, 0, 0, 0);
         lblStatus.BorderStyle = BorderStyle.None;
+        AttachStatusLedPainter(lblStatus);
         lblPreviewPage.ForeColor = textColor;
         lblPreviewPage.Font = new Font("Segoe UI", 8.75F, FontStyle.Bold, GraphicsUnit.Point);
         lblPreviewTip.ForeColor = subtleTextColor;
@@ -1268,9 +1450,9 @@ public partial class MainForm : Form
 
     private void treeTables_AfterSelect(object? sender, TreeViewEventArgs e)
     {
-        if (e.Node is not null)
+        if (e.Node is { Tag: "table" } && !string.IsNullOrEmpty(e.Node.Name))
         {
-            LoadColumnsForTable(e.Node.Text);
+            LoadColumnsForTable(e.Node.Name);
         }
     }
 
@@ -1576,6 +1758,7 @@ public partial class MainForm : Form
         var page = new DbLiteDesktop.Controls.QueryTabPage($"查询 {_queryTabCounter}");
 
         page.RunSqlRequested += (_, _) => RunSqlFor(page, preferSelection: true);
+        page.StopSqlRequested += (_, _) => CancelRunningQuery(page);
         page.ClearSqlRequested += (_, _) => page.TxtSql.Clear();
         page.CopySqlRequested += (_, _) =>
         {
@@ -1586,7 +1769,7 @@ public partial class MainForm : Form
         };
         page.FormatSqlRequested += (_, _) => FormatSqlFor(page);
         page.ExportResultsRequested += (_, _) => ExportGridData(page.GridResults, "查询结果");
-        page.GridResults.SortCompare += GridResults_SortCompare;
+        page.Results.SortCompare += GridResults_SortCompare;
 
         var tabPage = new TabPage(page.Title);
         tabPage.UseVisualStyleBackColor = true;
@@ -1622,8 +1805,9 @@ public partial class MainForm : Form
 
         page.TxtSql.ApplyTheme();
         page.TxtSql.PlaceholderText = "请输入只读 SQL，例如：SELECT * FROM your_table LIMIT 100";
-        StyleGrid(page.GridResults);
+        page.Results.SetStyle(StyleGrid);
         StyleActionButton(page.BtnRunSql, runColor);  // 执行用绿色,跟 Teal 主按钮形成分工
+        page.RunButtonColor = runColor;
         StyleGhostButton(page.BtnFormatSql);
         StyleGhostButton(page.BtnClearSql);
         StyleGhostButton(page.BtnCopySql);
@@ -1634,8 +1818,12 @@ public partial class MainForm : Form
         page.LblStatus.BackColor = chromeBackColor;
         page.LblStatus.ForeColor = Color.FromArgb(100, 116, 139);
         page.LblStatus.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular, GraphicsUnit.Point);
-        page.LblStatus.Padding = new Padding(16, 0, 0, 0);
         page.LblStatus.BorderStyle = BorderStyle.None;
+        AttachStatusLedPainter(page.LblStatus);
+
+        page.LblRowCount.BackColor = chromeBackColor;
+        page.LblRowCount.ForeColor = Color.FromArgb(15, 23, 42);
+        page.LblRowCount.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold, GraphicsUnit.Point);
     }
 
     private DbLiteDesktop.Controls.QueryTabPage? GetQueryPage(TabPage? tabPage)
@@ -1665,7 +1853,10 @@ public partial class MainForm : Form
         var items = new List<string>();
         foreach (TreeNode node in treeTables.Nodes)
         {
-            items.Add(node.Text);
+            if (node.Tag is "table" && !string.IsNullOrEmpty(node.Name))
+            {
+                items.Add(node.Name);
+            }
         }
         items.AddRange(_currentPreviewColumns);
         return items;
@@ -1688,7 +1879,9 @@ public partial class MainForm : Form
                 if (string.IsNullOrEmpty(keyword)
                     || table.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 {
-                    treeTables.Nodes.Add(table);
+                    var node = new TreeNode(table) { Name = table, Tag = "table" };
+                    node.Nodes.Add(new TreeNode("加载中...") { Tag = "placeholder" });
+                    treeTables.Nodes.Add(node);
                 }
             }
         }
@@ -1884,7 +2077,7 @@ public partial class MainForm : Form
         var page = GetQueryPage(tabPage);
         if (page is not null)
         {
-            page.GridResults.DataSource = null;
+            page.Results.Clear();
             page.TxtSql.Clear();
         }
 
@@ -1916,7 +2109,7 @@ public partial class MainForm : Form
             var page = GetQueryPage(queryTabs.TabPages[i]);
             if (page is not null)
             {
-                page.GridResults.DataSource = null;
+                page.Results.Clear();
                 page.TxtSql.Clear();
             }
             queryTabs.TabPages.RemoveAt(i);
@@ -1940,7 +2133,7 @@ public partial class MainForm : Form
             var page = GetQueryPage(queryTabs.TabPages[i]);
             if (page is not null)
             {
-                page.GridResults.DataSource = null;
+                page.Results.Clear();
                 page.TxtSql.Clear();
             }
             queryTabs.TabPages.RemoveAt(i);
@@ -1961,7 +2154,7 @@ public partial class MainForm : Form
             var page = GetQueryPage(queryTabs.TabPages[i]);
             if (page is not null)
             {
-                page.GridResults.DataSource = null;
+                page.Results.Clear();
                 page.TxtSql.Clear();
             }
             queryTabs.TabPages.RemoveAt(i);
@@ -1977,7 +2170,7 @@ public partial class MainForm : Form
             var page = GetQueryPage(tabPage);
             if (page is not null)
             {
-                page.GridResults.DataSource = null;
+                page.Results.Clear();
                 page.TxtSql.Clear();
             }
         }
