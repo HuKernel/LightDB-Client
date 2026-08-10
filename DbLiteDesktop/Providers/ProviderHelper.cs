@@ -24,9 +24,60 @@ public static class ProviderHelper
             var table = new DataTable();
             table.Load(reader);
             TrimRows(table, maxRows);
+            TruncateVectorCells(table);
             results.Add(table);
         } while (!reader.IsClosed && reader.NextResult());
         return results;
+    }
+
+    /// <summary>
+    /// 将形如 [0.1,0.2,...] 的超长向量文本截断为 "[0.1, 0.2, 0.3, …] · N 维",
+    /// 避免高维向量撑爆网格显示与列宽计算。
+    /// </summary>
+    public static void TruncateVectorCells(DataTable table)
+    {
+        foreach (DataColumn column in table.Columns)
+        {
+            if (column.DataType != typeof(string))
+            {
+                continue;
+            }
+
+            foreach (DataRow row in table.Rows)
+            {
+                if (row[column] is string value)
+                {
+                    row[column] = TruncateVectorText(value);
+                }
+            }
+        }
+    }
+
+    public static string TruncateVectorText(string value)
+    {
+        if (value.Length < 200 || value[0] != '[' || value[^1] != ']')
+        {
+            return value;
+        }
+
+        var dims = 1;
+        var thirdComma = -1;
+        for (var i = 1; i < value.Length - 1; i++)
+        {
+            if (value[i] != ',')
+            {
+                continue;
+            }
+            dims++;
+            if (dims == 4)
+            {
+                thirdComma = i;
+                break;
+            }
+        }
+
+        var head = thirdComma > 0 ? value[..thirdComma] : value[..^1];
+        return $"{head}, …] · {dims} 维";
     }
 
     public static string BuildPreviewSql(

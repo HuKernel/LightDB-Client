@@ -9,4 +9,7 @@ public class TableColumnInfo
     public string? DefaultValue { get; set; }
     public string? Extra { get; set; }
     public string? Comment { get; set; }
+
+    public bool IsVector { get; set; }
+    public int VectorDimension { get; set; }
 }

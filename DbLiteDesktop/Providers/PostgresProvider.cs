@@ -1,14 +1,17 @@
+using System.Collections.Concurrent;
 using System.Data;
 using DbLiteDesktop.Models;
 using DbLiteDesktop.Services;
 using DbLiteDesktop.Utils;
 using Npgsql;
+using Pgvector;
 
 namespace DbLiteDesktop.Providers;
 
 public class PostgresProvider : IDatabaseProvider
 {
     private static readonly Func<string, string> Quote = IdentifierQuoteHelper.QuotePostgres;
+    private static readonly ConcurrentDictionary<string, NpgsqlDataSource> DataSources = new();
     private NpgsqlCommand? _currentCommand;
 
     public void CancelQuery()
@@ -18,8 +21,7 @@ public class PostgresProvider : IDatabaseProvider
 
     public bool TestConnection(DbConnectionConfig config, string password)
     {
-        using var connection = CreateConnection(config, password);
-        connection.Open();
+        using var connection = GetDataSource(config, password).OpenConnection();
 
         using var command = new NpgsqlCommand("SELECT 1;", connection);
         return command.ExecuteScalar() is not null;
@@ -27,8 +29,7 @@ public class PostgresProvider : IDatabaseProvider
 
     public List<string> GetTables(DbConnectionConfig config, string password)
     {
-        using var connection = CreateConnection(config, password);
-        connection.Open();
+        using var connection = GetDataSource(config, password).OpenConnection();
 
         using var command = new NpgsqlCommand(
             """
@@ -53,16 +54,22 @@ public class PostgresProvider : IDatabaseProvider
 
     public List<TableColumnInfo> GetColumns(DbConnectionConfig config, string password, string tableName)
     {
-        using var connection = CreateConnection(config, password);
-        connection.Open();
+        using var connection = GetDataSource(config, password).OpenConnection();
 
         using var command = new NpgsqlCommand(
             """
-            SELECT column_name, data_type, is_nullable, column_default,
-                   col_description((table_schema || '.' || table_name)::regclass, ordinal_position) AS comment
-            FROM information_schema.columns
-            WHERE table_schema = 'public' AND table_name = $1
-            ORDER BY ordinal_position;
+            SELECT c.column_name,
+                   format_type(a.atttypid, a.atttypmod) AS column_type,
+                   c.is_nullable,
+                   c.column_default,
+                   a.atttypid::regtype::text AS udt_name,
+                   col_description((c.table_schema || '.' || c.table_name)::regclass, c.ordinal_position) AS comment
+            FROM information_schema.columns c
+            JOIN pg_attribute a
+              ON a.attrelid = (c.table_schema || '.' || c.table_name)::regclass
+             AND a.attname = c.column_name
+            WHERE c.table_schema = 'public' AND c.table_name = $1
+            ORDER BY c.ordinal_position;
             """,
             connection
         );
@@ -73,18 +80,36 @@ public class PostgresProvider : IDatabaseProvider
 
         while (reader.Read())
         {
+            var type = reader["column_type"]?.ToString() ?? string.Empty;
+            var udtName = reader["udt_name"]?.ToString() ?? string.Empty;
+            var isVector = string.Equals(udtName, "vector", StringComparison.OrdinalIgnoreCase);
+
             items.Add(new TableColumnInfo
             {
                 Name = reader["column_name"]?.ToString() ?? string.Empty,
-                Type = reader["data_type"]?.ToString() ?? string.Empty,
+                Type = type,
                 Nullable = reader["is_nullable"]?.ToString() ?? string.Empty,
                 DefaultValue = reader["column_default"]?.ToString(),
                 Extra = string.Empty,
-                Comment = reader["comment"]?.ToString()
+                Comment = reader["comment"]?.ToString(),
+                IsVector = isVector,
+                VectorDimension = isVector ? ParseVectorDimension(type) : 0
             });
         }
 
         return items;
+    }
+
+    private static int ParseVectorDimension(string type)
+    {
+        // vector(1536) → 1536;vector → 0(未知维度)
+        var open = type.IndexOf('(');
+        var close = type.IndexOf(')');
+        if (open > 0 && close > open && int.TryParse(type.Substring(open + 1, close - open - 1), out var dim))
+        {
+            return dim;
+        }
+        return 0;
     }
 
     public DataTable ExecuteQuery(DbConnectionConfig config, string password, string sql, int maxRows = 1000)
@@ -94,8 +119,7 @@ public class PostgresProvider : IDatabaseProvider
             throw new InvalidOperationException("当前工具只允许执行只读 SQL");
         }
 
-        using var connection = CreateConnection(config, password);
-        connection.Open();
+        using var connection = GetDataSource(config, password).OpenConnection();
 
         using var command = new NpgsqlCommand(sql, connection)
         {
@@ -103,10 +127,8 @@ public class PostgresProvider : IDatabaseProvider
         };
 
         using var reader = command.ExecuteReader();
-        var table = new DataTable();
-        table.Load(reader);
-        ProviderHelper.TrimRows(table, maxRows);
-        return table;
+        var tables = LoadTablesPg(reader, maxRows);
+        return tables.Count > 0 ? tables[0] : new DataTable();
     }
 
     public List<DataTable> ExecuteQueryMultiple(DbConnectionConfig config, string password, string sql, int maxRows = 1000)
@@ -116,8 +138,7 @@ public class PostgresProvider : IDatabaseProvider
             throw new InvalidOperationException("当前工具只允许执行只读 SQL");
         }
 
-        using var connection = CreateConnection(config, password);
-        connection.Open();
+        using var connection = GetDataSource(config, password).OpenConnection();
 
         using var command = connection.CreateCommand();
         command.CommandText = sql;
@@ -126,7 +147,7 @@ public class PostgresProvider : IDatabaseProvider
         try
         {
             using var reader = command.ExecuteReader();
-            return ProviderHelper.LoadAllTables(reader, maxRows);
+            return LoadTablesPg(reader, maxRows);
         }
         finally
         {
@@ -134,10 +155,69 @@ public class PostgresProvider : IDatabaseProvider
         }
     }
 
+    /// <summary>
+    /// 手动读取到 DataTable:DataTable.Load 无法读取 pgvector 的 vector 列(抛 InvalidCastException),
+    /// 这里对 vector 列用 Pgvector.Vector 读取后转为截断的文本显示。
+    /// </summary>
+    private static List<DataTable> LoadTablesPg(NpgsqlDataReader reader, int maxRows)
+    {
+        var results = new List<DataTable>();
+        do
+        {
+            var table = new DataTable();
+            var vectorOrdinals = new HashSet<int>();
+
+            for (var i = 0; i < reader.FieldCount; i++)
+            {
+                var isVector = string.Equals(reader.GetDataTypeName(i), "vector", StringComparison.OrdinalIgnoreCase);
+                if (isVector)
+                {
+                    vectorOrdinals.Add(i);
+                }
+
+                var name = reader.GetName(i);
+                var finalName = name;
+                var suffix = 1;
+                while (table.Columns.Contains(finalName))
+                {
+                    finalName = $"{name}_{suffix++}";
+                }
+                table.Columns.Add(new DataColumn(finalName, isVector ? typeof(string) : reader.GetFieldType(i)));
+            }
+
+            var rowCount = 0;
+            while (reader.Read() && rowCount < maxRows)
+            {
+                var values = new object[reader.FieldCount];
+                for (var i = 0; i < reader.FieldCount; i++)
+                {
+                    if (reader.IsDBNull(i))
+                    {
+                        values[i] = DBNull.Value;
+                    }
+                    else if (vectorOrdinals.Contains(i))
+                    {
+                        var vector = reader.GetFieldValue<Vector>(i);
+                        values[i] = ProviderHelper.TruncateVectorText($"[{string.Join(',', vector)}]");
+                    }
+                    else
+                    {
+                        values[i] = reader.GetValue(i);
+                    }
+                }
+                table.Rows.Add(values);
+                rowCount++;
+            }
+
+            results.Add(table);
+        } while (!reader.IsClosed && reader.NextResult());
+
+        return results;
+    }
+
     public long GetRowCount(DbConnectionConfig config, string password, string tableName)
     {
-        using var connection = CreateConnection(config, password);
-        connection.Open();
+        using var connection = GetDataSource(config, password).OpenConnection();
 
         using var command = new NpgsqlCommand(
             $"SELECT COUNT(*) FROM {Quote(tableName)};",
@@ -162,7 +242,7 @@ public class PostgresProvider : IDatabaseProvider
         int pageSize
     ) => ProviderHelper.BuildFilteredPreviewSql(tableName, columns, selectedColumn, keyword, exactMatch, page, pageSize, Quote, "TEXT", "ILIKE");
 
-    private static NpgsqlConnection CreateConnection(DbConnectionConfig config, string password)
+    private static NpgsqlDataSource GetDataSource(DbConnectionConfig config, string password)
     {
         var builder = new NpgsqlConnectionStringBuilder
         {
@@ -178,6 +258,11 @@ public class PostgresProvider : IDatabaseProvider
             MaxPoolSize = 10
         };
 
-        return new(builder.ConnectionString);
+        return DataSources.GetOrAdd(builder.ConnectionString, connectionString =>
+        {
+            var dataSourceBuilder = new NpgsqlDataSourceBuilder(connectionString);
+            dataSourceBuilder.UseVector();
+            return dataSourceBuilder.Build();
+        });
     }
 }

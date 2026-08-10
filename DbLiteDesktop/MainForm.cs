@@ -131,15 +131,32 @@ public partial class MainForm : Form
         copyColumnNameItem.Click += (_, _) =>
         {
             var node = treeTables.SelectedNode;
-            if (node is { Tag: "column" } && node.Name is { Length: > 0 } colName)
+            if (node is { Tag: "column" or Models.TableColumnInfo } && node.Name is { Length: > 0 } colName)
             {
                 Clipboard.SetText(colName);
+            }
+        };
+
+        var vectorSearchItem = new ToolStripMenuItem("向量相似搜索");
+        vectorSearchItem.BackColor = Color.White;
+        vectorSearchItem.ForeColor = Color.FromArgb(15, 23, 42);
+        vectorSearchItem.Font = new Font("Segoe UI", 9F, GraphicsUnit.Point);
+        vectorSearchItem.Margin = new Padding(8, 6, 8, 6);
+        vectorSearchItem.Click += (_, _) =>
+        {
+            if (treeTables.SelectedNode?.Tag is Models.TableColumnInfo { IsVector: true } vectorCol
+                && treeTables.SelectedNode.Parent is { Tag: "table" } tableNode
+                && !string.IsNullOrEmpty(tableNode.Name))
+            {
+                OpenVectorSearchForm(tableNode.Name, vectorCol);
             }
         };
 
         _tableCopyMenu.Items.Clear();
         _tableCopyMenu.Items.Add(copyTableNameItem);
         _tableCopyMenu.Items.Add(copyColumnNameItem);
+        _tableCopyMenu.Items.Add(new ToolStripSeparator());
+        _tableCopyMenu.Items.Add(vectorSearchItem);
 
         treeTables.MouseDown += treeTables_MouseDown;
         treeTables.BeforeExpand += treeTables_BeforeExpand;
@@ -158,9 +175,11 @@ public partial class MainForm : Form
         }
         treeTables.SelectedNode = hit;
 
-        var isColumn = hit.Tag is "column";
-        _tableCopyMenu.Items[0].Available = !isColumn;
-        _tableCopyMenu.Items[1].Available = isColumn;
+        var isColumn = hit.Tag is "column" or Models.TableColumnInfo;
+        var isVectorColumn = hit.Tag is Models.TableColumnInfo { IsVector: true };
+        _tableCopyMenu.Items[0].Available = !isColumn;              // 复制表名
+        _tableCopyMenu.Items[1].Available = isColumn;               // 复制列名
+        _tableCopyMenu.Items[3].Available = isVectorColumn;         // 向量相似搜索
 
         _tableCopyMenu.Show(treeTables, e.Location);
     }
@@ -173,7 +192,7 @@ public partial class MainForm : Form
         }
 
         // 已加载过列则跳过
-        if (e.Node.Nodes.Count > 0 && e.Node.Nodes[0].Tag is "column")
+        if (e.Node.Nodes.Count > 0 && e.Node.Nodes[0].Tag is "column" or Models.TableColumnInfo)
         {
             return;
         }
@@ -209,10 +228,15 @@ public partial class MainForm : Form
                         var colNode = new TreeNode(display)
                         {
                             Name = col.Name,
-                            Tag = "column",
+                            Tag = col.IsVector ? col : "column",
                             ForeColor = Color.FromArgb(100, 116, 139),
                             NodeFont = new Font("Segoe UI", 8.25F, GraphicsUnit.Point)
                         };
+                        if (col.IsVector)
+                        {
+                            colNode.Text = $"🧬 {display}";
+                            colNode.ForeColor = Color.FromArgb(15, 118, 110);
+                        }
                         e.Node.Nodes.Add(colNode);
                     }
                 });
@@ -226,6 +250,19 @@ public partial class MainForm : Form
                 });
             }
         });
+    }
+
+    private void OpenVectorSearchForm(string tableName, Models.TableColumnInfo column)
+    {
+        using var form = new Forms.VectorSearchForm(tableName, column);
+        if (form.ShowDialog(this) != DialogResult.OK || string.IsNullOrEmpty(form.GeneratedSql))
+        {
+            return;
+        }
+
+        var page = AddQueryTab(form.GeneratedSql);
+        tabMain.SelectedTab = tabSql;
+        RunSqlFor(page, preferSelection: false);
     }
 
     private void LoadConnections()
@@ -441,6 +478,14 @@ public partial class MainForm : Form
                 {
                     gridColumns.DataSource = null;
                     gridColumns.DataSource = columns;
+                    // 隐藏向量元数据列,不在字段网格里展示
+                    foreach (var hidden in new[] { "IsVector", "VectorDimension" })
+                    {
+                        if (gridColumns.Columns.Contains(hidden))
+                        {
+                            gridColumns.Columns[hidden]!.Visible = false;
+                        }
+                    }
                     _currentPreviewColumns = columns.Select(column => column.Name).Where(name => !string.IsNullOrWhiteSpace(name)).ToList();
                     BindPreviewFields();
 
